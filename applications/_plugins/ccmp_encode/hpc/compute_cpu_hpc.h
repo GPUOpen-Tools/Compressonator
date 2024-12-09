@@ -55,7 +55,7 @@ class CCPU_HPC : public ComputeBase
 public:
     CCPU_HPC(void* kerneloptions);
     ~CCPU_HPC();
-    CMP_ERROR   Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback);
+    CMP_ERROR   Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2);
     void        SetComputeOptions(ComputeOptions* CLOptions);
     float       GetProcessElapsedTimeMS();
     float       GetMTxPerSec();

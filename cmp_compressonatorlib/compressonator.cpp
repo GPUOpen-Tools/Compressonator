@@ -273,7 +273,9 @@ static void CMP_PrepareSourceForCMP_Destination(CMP_Texture* pTexture, CMP_FORMA
 CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
                                      CMP_Texture*               pDestTexture,
                                      const CMP_CompressOptions* pOptions,
-                                     CMP_Feedback_Proc          pFeedbackProc)
+                                     CMP_Feedback_Proc          pFeedbackProc,
+                                     CMP_DWORD_PTR              pUser1,
+                                     CMP_DWORD_PTR              pUser2)
 {
 #ifdef USE_DBGTRACE
     DbgTrace(("-------> pSourceTexture [%x] pDestTexture [%x] pOptions [%x]", pSourceTexture, pDestTexture, pOptions));
@@ -397,17 +399,17 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
 #endif
         )
         {
-            return CodecCompressTextureThreaded(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc);
+            return CodecCompressTextureThreaded(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc, pUser1, pUser2);
         }
         else
 #endif  // THREADED_COMPRESS
         {
-            return CodecCompressTexture(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc);
+            return CodecCompressTexture(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc, pUser1, pUser2);
         }
     }
     else if (!compressing && decompressing)  // Decompression
     {
-        return CodecDecompressTexture(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc);
+        return CodecDecompressTexture(&srcTextureCopy, pDestTexture, pOptions, pFeedbackProc, pUser1, pUser2);
     }
     else  // Decompressing & then compressing
     {
@@ -458,10 +460,10 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
         }
 
         DISABLE_FP_EXCEPTIONS;
-        CodecError err2 = pCodecIn->Decompress(*pSrcBuffer, *pTempBuffer, pFeedbackProc);
+        CodecError err2 = pCodecIn->Decompress(*pSrcBuffer, *pTempBuffer, pFeedbackProc, pUser1, pUser2);
         if (err2 == CE_OK)
         {
-            err2 = pCodecOut->Compress(*pTempBuffer, *pDestBuffer, pFeedbackProc);
+            err2 = pCodecOut->Compress(*pTempBuffer, *pDestBuffer, pFeedbackProc, pUser1, pUser2);
         }
         RESTORE_FP_EXCEPTIONS;
 
@@ -469,7 +471,7 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
     }
 }
 
-CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_MipSetOut, const CMP_CompressOptions* pOptions, CMP_Feedback_Proc pFeedbackProc)
+CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_MipSetOut, const CMP_CompressOptions* pOptions, CMP_Feedback_Proc pFeedbackProc, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2)
 {
     assert(p_MipSetIn);
     assert(p_MipSetOut);
@@ -577,7 +579,7 @@ CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_Mi
         //========================
         // Process ConvertTexture
         //========================
-        CMP_ERROR cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, pOptions, pFeedbackProc);
+        CMP_ERROR cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, pOptions, pFeedbackProc, pUser1, pUser2);
         if (cmp_status != CMP_OK)
         {
             return cmp_status;
@@ -701,7 +703,7 @@ CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_Mi
                 //========================
                 // Process ConvertTexture
                 //========================
-                CMP_ERROR cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, pOptions, pFeedbackProc);
+                CMP_ERROR cmp_status = CMP_ConvertTexture(&srcTexture, &destTexture, pOptions, pFeedbackProc, pUser1, pUser2);
 
                 if (cmp_status != CMP_OK)
                 {

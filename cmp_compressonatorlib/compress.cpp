@@ -189,7 +189,7 @@ static void CMP_PrepareCMPSourceForIMG_Destination(CMP_Texture* destTexture, CMP
 
 #endif
 
-CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc)
+CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc, CMP_DWORD_PTR user1, CMP_DWORD_PTR user2)
 {
     CodecType destType = GetCodecType(destTexture->format);
     if (destType == CT_Unknown)
@@ -370,7 +370,7 @@ CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destT
     srcBuffer->m_bSwizzle = swizzleSrcBuffer;
 
     DISABLE_FP_EXCEPTIONS;
-    CodecError err = codec->Compress(*srcBuffer, *destBuffer, feedbackProc);
+    CodecError err = codec->Compress(*srcBuffer, *destBuffer, feedbackProc, user1, user2);
     RESTORE_FP_EXCEPTIONS;
 
     destTexture->dwDataSize = destBuffer->GetDataSize();
@@ -382,7 +382,7 @@ CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destT
     return GetError(err);
 }
 
-CMP_ERROR CodecDecompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc)
+CMP_ERROR CodecDecompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc, CMP_DWORD_PTR user1, CMP_DWORD_PTR user2)
 {
     CodecType srcType = GetCodecType(srcTexture->format);
     if (srcType == CT_Unknown)
@@ -448,7 +448,7 @@ CMP_ERROR CodecDecompressTexture(const CMP_Texture* srcTexture, CMP_Texture* des
     destBuffer->SetBlockDepth(destTexture->nBlockDepth);
     destBuffer->SetFormat(destTexture->format);
 
-    CodecError err1 = codec->Decompress(*srcBuffer, *destBuffer, feedbackProc);
+    CodecError err1 = codec->Decompress(*srcBuffer, *destBuffer, feedbackProc, user1, user2);
 
     RESTORE_FP_EXCEPTIONS;
 
@@ -477,6 +477,8 @@ public:
     CCodecBuffer*     m_pSrcBuffer;
     CCodecBuffer*     m_pDestBuffer;
     CMP_Feedback_Proc m_pFeedbackProc;
+    CMP_DWORD_PTR     m_pUser1;
+    CMP_DWORD_PTR     m_pUser2;
     CodecError        m_errorCode;
 };
 
@@ -485,6 +487,8 @@ CATICompressThreadData::CATICompressThreadData()
     , m_pSrcBuffer(NULL)
     , m_pDestBuffer(NULL)
     , m_pFeedbackProc(NULL)
+    , m_pUser1(NULL)
+    , m_pUser2(NULL)
     , m_errorCode(CE_OK)
 {
 }
@@ -500,7 +504,7 @@ void ThreadedCompressProc(void* lpParameter)
 {
     CATICompressThreadData* pThreadData = (CATICompressThreadData*)lpParameter;
     DISABLE_FP_EXCEPTIONS;
-    CodecError err = pThreadData->m_pCodec->Compress(*pThreadData->m_pSrcBuffer, *pThreadData->m_pDestBuffer, pThreadData->m_pFeedbackProc);
+    CodecError err = pThreadData->m_pCodec->Compress(*pThreadData->m_pSrcBuffer, *pThreadData->m_pDestBuffer, pThreadData->m_pFeedbackProc, pThreadData->m_pUser1, pThreadData->m_pUser2);
     RESTORE_FP_EXCEPTIONS;
     pThreadData->m_errorCode = err;
 }
@@ -508,7 +512,9 @@ void ThreadedCompressProc(void* lpParameter)
 CMP_ERROR CodecCompressTextureThreaded(const CMP_Texture*         srcTexture,
                                        CMP_Texture*               destTexture,
                                        const CMP_CompressOptions* options,
-                                       CMP_Feedback_Proc          feedbackProc)
+                                       CMP_Feedback_Proc          feedbackProc,
+                                       CMP_DWORD_PTR              user1,
+                                       CMP_DWORD_PTR              user2)
 {
     CodecType destType = GetCodecType(destTexture->format);
     if (destType == CT_Unknown)
@@ -679,6 +685,8 @@ CMP_ERROR CodecCompressTextureThreaded(const CMP_Texture*         srcTexture,
 
             threadData.m_pSrcBuffer->m_bSwizzle = swizzleSrcBuffer;
             threadData.m_pFeedbackProc          = feedbackProc;
+            threadData.m_pUser1                 = user1;
+            threadData.m_pUser2                 = user2;
 
             ahThread[dwThreadCount++] = std::thread(ThreadedCompressProc, &threadData);
         }

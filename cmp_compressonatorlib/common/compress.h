@@ -56,13 +56,15 @@
 // TODO: This probably shouldn't be defined in compress.cpp
 CMP_INT CMP_GetNumberOfProcessors();
 
-CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc);
+CMP_ERROR CodecCompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc, CMP_DWORD_PTR user1, CMP_DWORD_PTR user2);
 
 CMP_ERROR CodecCompressTextureThreaded(const CMP_Texture*         srcTexture,
                                        CMP_Texture*               destTexture,
                                        const CMP_CompressOptions* options,
-                                       CMP_Feedback_Proc          feedbackProc);
+                                       CMP_Feedback_Proc          feedbackProc,
+                                       CMP_DWORD_PTR              user1,
+                                       CMP_DWORD_PTR              user2);
 
-CMP_ERROR CodecDecompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc);
+CMP_ERROR CodecDecompressTexture(const CMP_Texture* srcTexture, CMP_Texture* destTexture, const CMP_CompressOptions* options, CMP_Feedback_Proc feedbackProc, CMP_DWORD_PTR user1, CMP_DWORD_PTR user2);
 
 #endif  // !COMPRESS_H

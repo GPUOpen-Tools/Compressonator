@@ -385,13 +385,13 @@ CMP_ERROR CMP_API CMP_GetDeviceInfo(KernelDeviceInfo* pDeviceInfo)
     return CMP_OK;
 }
 
-CMP_ERROR CMP_API CMP_CompressTexture(KernelOptions* options, CMP_MipSet srcMipSet, CMP_MipSet dstMipSet, CMP_Feedback_Proc pFeedback)
+CMP_ERROR CMP_API CMP_CompressTexture(KernelOptions* options, CMP_MipSet srcMipSet, CMP_MipSet dstMipSet, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2)
 {
     CMP_ERROR result;
 
     if (g_ComputeBase)
     {
-        result = g_ComputeBase->TC_Compress(options, srcMipSet, dstMipSet, pFeedback);
+        result = g_ComputeBase->TC_Compress(options, srcMipSet, dstMipSet, pFeedback, pUser1, pUser2);
         if (result != CMP_OK)
             return (result);
     }
@@ -419,7 +419,7 @@ CMP_ERROR CMP_API CMP_SetComputeOptions(ComputeOptions* options)
 //===========================================================================================================
 std::mutex cmp_mutex;
 
-CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSet, KernelOptions kernelOptions, CMP_Feedback_Proc pFeedbackProc)
+CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSet, KernelOptions kernelOptions, CMP_Feedback_Proc pFeedbackProc, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2)
 {
     cmp_mutex.lock();
 
@@ -550,7 +550,7 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             }
 
             // Do the compression
-            if (CMP_CompressTexture(&kernelOptions, *srcMipSet, *dstMipSet, pFeedbackProc) != CMP_OK)
+            if (CMP_CompressTexture(&kernelOptions, *srcMipSet, *dstMipSet, pFeedbackProc, pUser1, pUser2) != CMP_OK)
             {
                 CMips.FreeMipSet(dstMipSet);
                 CMP_DestroyComputeLibrary(true);
