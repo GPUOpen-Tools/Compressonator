@@ -22,6 +22,15 @@ target_sources(cmp_unittests
 
     blockconstants.h
     bc6h_tests.cpp
+
+    # Security regression tests. These guard the hardening applied to publicly
+    # shipped code (see security_tests/docs/), so they must build in the public
+    # project rather than only in the internal staged test tree.
+    bc1_compress_security_tests.cpp
+    codec_thread_lifecycle_tests.cpp
+    dds_loader_security_tests.cpp
+    float_to_byte_security_tests.cpp
+    tga_rle_security_tests.cpp
 )
 
 target_include_directories(cmp_unittests
@@ -48,6 +57,11 @@ target_link_libraries(cmp_unittests
     CMP_Framework
     CMP_Compressonator
 )
+
+# tga_rle_security_tests.cpp drives the TGA loader through CMP_LoadTexture, so the
+# plugin has to be linked into the test binary. The root CMakeLists enables
+# LIB_BUILD_IMAGEIO whenever the unit tests are built, so this target always exists here.
+target_link_libraries(cmp_unittests Image_TGA)
 
 if (OPTION_BUILD_BROTLIG)
     target_sources(cmp_unittests PRIVATE brlg_data.h)

@@ -146,3 +146,8 @@ set_target_properties(CMP_Framework PROPERTIES
 )
 
 target_link_libraries(CMP_Framework PRIVATE CMP_Core)
+
+# cmp_fileio.cpp uses token/security descriptor APIs
+if (WIN32)
+    target_link_libraries(CMP_Framework PRIVATE advapi32)
+endif()

@@ -31,6 +31,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #include "common.h"
 #include "compressonator.h"
@@ -50,8 +51,8 @@
 
 TC_PluginError LoadDDS_FourCC(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopFourCC, LoopFourCC, PostLoopFourCC);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopFourCC, LoopFourCC, PostLoopFourCC);
     fclose(pFile);
 
     // Try to set MipSet format for know FourCC formats
@@ -63,8 +64,8 @@ TC_PluginError LoadDDS_FourCC(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_RGB565(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB565, LoopRGB565, PostLoopRGB565);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB565, LoopRGB565, PostLoopRGB565);
     //pMipSet->m_format  = CMP_FORMAT_RGB_565;
     fclose(pFile);
     return err;
@@ -72,9 +73,9 @@ TC_PluginError LoadDDS_RGB565(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_RGB888(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB888, LoopRGB888, PostLoopRGB888);
-    pMipSet->m_format  = CMP_FORMAT_ARGB_8888;
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB888, LoopRGB888, PostLoopRGB888);
+    pMipSet->m_format    = CMP_FORMAT_ARGB_8888;
     fclose(pFile);
     return err;
 }
@@ -82,7 +83,12 @@ TC_PluginError LoadDDS_RGB888(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 TC_PluginError LoadDDS_RGB8888(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet, bool bAlpha)
 {
     ARGB8888Struct* pARGB8888Struct = (ARGB8888Struct*)calloc(sizeof(ARGB8888Struct), 1);
-    void*           extra           = pARGB8888Struct;
+    if (!pARGB8888Struct)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    void* extra = pARGB8888Struct;
 
     //if (pDDSD->ddpfPixelFormat.dwFlags & DDPF_RGB)
     //    pMipSet->m_format = CMP_FORMAT_ABGR_8888;
@@ -109,8 +115,21 @@ TC_PluginError LoadDDS_RGB8888(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet, bool 
 
     if (pARGB8888Struct->nFlags & EF_UseBitMasks)
     {
-        //using bitmasks
-        pARGB8888Struct->pMemory = malloc(4 * pDDSD->dwWidth * pDDSD->dwHeight);
+        // using bitmasks
+        // prevent integer overflow in temporary pixel buffer size calculation
+        if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwWidth > UINT32_MAX / 4 / pDDSD->dwHeight)
+        {
+            free(pARGB8888Struct);
+            fclose(pFile);
+            return PE_Unknown;
+        }
+        pARGB8888Struct->pMemory = malloc((size_t)4 * pDDSD->dwWidth * pDDSD->dwHeight);
+        if (!pARGB8888Struct->pMemory)
+        {
+            free(pARGB8888Struct);
+            fclose(pFile);
+            return PE_Unknown;
+        }
         if (pMipSet->m_swizzle)
         {
             pARGB8888Struct->nBMask = pDDSD->ddpfPixelFormat.dwRBitMask;
@@ -162,14 +181,32 @@ TC_PluginError LoadDDS_RGB8888(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet, bool 
 TC_PluginError LoadDDS_RGB8888_S(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet, bool bAlpha)
 {
     ARGB8888Struct* pARGB8888Struct = (ARGB8888Struct*)calloc(sizeof(ARGB8888Struct), 1);
-    void*           extra           = pARGB8888Struct;
+    if (!pARGB8888Struct)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    void* extra = pARGB8888Struct;
 
     pARGB8888Struct->nFlags |= EF_UseBitMasks;
 
     if (pARGB8888Struct->nFlags & EF_UseBitMasks)
     {
-        //using bitmasks
-        pARGB8888Struct->pMemory = malloc(4 * pDDSD->dwWidth * pDDSD->dwHeight);
+        // using bitmasks
+        // prevent integer overflow in temporary pixel buffer size calculation
+        if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwWidth > UINT32_MAX / 4 / pDDSD->dwHeight)
+        {
+            free(pARGB8888Struct);
+            fclose(pFile);
+            return PE_Unknown;
+        }
+        pARGB8888Struct->pMemory = malloc((size_t)4 * pDDSD->dwWidth * pDDSD->dwHeight);
+        if (!pARGB8888Struct->pMemory)
+        {
+            free(pARGB8888Struct);
+            fclose(pFile);
+            return PE_Unknown;
+        }
         if (pMipSet->m_swizzle)
         {
             pARGB8888Struct->nBMask = pDDSD->ddpfPixelFormat.dwRBitMask;
@@ -258,17 +295,17 @@ TC_PluginError LoadDDS_RGBA1010102(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_ABGR32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_ARGB, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
-    pMipSet->m_format  = CMP_FORMAT_ARGB_32F;
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_ARGB, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
+    pMipSet->m_format    = CMP_FORMAT_ARGB_32F;
     fclose(pFile);
     return err;
 }
 
 TC_PluginError LoadDDS_GR32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_RG, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_RG, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
     //pMipSet->m_format  = CMP_FORMAT_GR32F;
     fclose(pFile);
     return err;
@@ -276,8 +313,8 @@ TC_PluginError LoadDDS_GR32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_R32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_R, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_R, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
     //pMipSet->m_format  = CMP_FORMAT_R32F;
     fclose(pFile);
     return err;
@@ -285,8 +322,8 @@ TC_PluginError LoadDDS_R32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_R16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_R, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_R, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
     //pMipSet->m_format  = CMP_FORMAT_R16F;
     fclose(pFile);
     return err;
@@ -294,8 +331,8 @@ TC_PluginError LoadDDS_R16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_G16R16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_RG, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_RG, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
     //pMipSet->m_format  = CMP_FORMAT_G16R16F;
     fclose(pFile);
     return err;
@@ -303,17 +340,17 @@ TC_PluginError LoadDDS_G16R16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_ABGR16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_ARGB, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
-    pMipSet->m_format  = CMP_FORMAT_ABGR_16F;
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_ARGB, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
+    pMipSet->m_format    = CMP_FORMAT_ABGR_16F;
     fclose(pFile);
     return err;
 }
 
 TC_PluginError LoadDDS_G8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopG8, LoopG8, PostLoopG8);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopG8, LoopG8, PostLoopG8);
     //pMipSet->m_format  = CMP_FORMAT_G8;
     fclose(pFile);
     return err;
@@ -321,8 +358,8 @@ TC_PluginError LoadDDS_G8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_AG8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_ARGB, PreLoopAG8, LoopAG8, PostLoopAG8);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_ARGB, PreLoopAG8, LoopAG8, PostLoopAG8);
     //pMipSet->m_format  = CMP_FORMAT_AG8;
     fclose(pFile);
     return err;
@@ -330,8 +367,8 @@ TC_PluginError LoadDDS_AG8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_G16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopG16, LoopG16, PostLoopG16);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopG16, LoopG16, PostLoopG16);
     //pMipSet->m_format  = CMP_FORMAT_G16;
     fclose(pFile);
     return err;
@@ -339,8 +376,8 @@ TC_PluginError LoadDDS_G16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_A8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_ARGB, PreLoopA8, LoopA8, PostLoopA8);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_ARGB, PreLoopA8, LoopA8, PostLoopA8);
     //pMipSet->m_format  = CMP_FORMAT_A8;
     fclose(pFile);
     return err;
@@ -348,17 +385,17 @@ TC_PluginError LoadDDS_A8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_ABGR16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_ARGB, PreLoopABGR16, LoopABGR16, PostLoopABGR16);
-    pMipSet->m_format  = CMP_FORMAT_ABGR_16;
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_ARGB, PreLoopABGR16, LoopABGR16, PostLoopABGR16);
+    pMipSet->m_format    = CMP_FORMAT_ABGR_16;
     fclose(pFile);
     return err;
 }
 
 TC_PluginError LoadDDS_G16R16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_RG, PreLoopG16R16, LoopABGR16, PostLoopG16R16);
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_RG, PreLoopG16R16, LoopABGR16, PostLoopG16R16);
     //pMipSet->m_format  = CMP_FORMAT_G16R16;
     fclose(pFile);
     return err;
@@ -366,9 +403,9 @@ TC_PluginError LoadDDS_G16R16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_R16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void*          extra;
-    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_R, PreLoopR16, LoopR16, PostLoopR16);
-    pMipSet->m_format  = CMP_FORMAT_R_16;
+    void*          extra = NULL;
+    TC_PluginError err   = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_R, PreLoopR16, LoopR16, PostLoopR16);
+    pMipSet->m_format    = CMP_FORMAT_R_16;
     fclose(pFile);
     return err;
 }

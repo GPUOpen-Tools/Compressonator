@@ -26,9 +26,13 @@
 #endif
 
 #include "cmdline.h"
+#include "scoped_temp_files.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #ifndef _WIN32
@@ -38,6 +42,8 @@
 #include <time.h>
 #include <wchar.h>
 #include <unistd.h> /* For open(), creat() */
+#else
+#include <process.h> /* For _getpid() */
 #endif
 
 // #define SHOW_PROCESS_MEMORY
@@ -197,6 +203,20 @@ static inline bool IsProcessingBRLG(const CCmdLineParamaters& params)
     return params.CompressOptions.DestFormat == CMP_FORMAT_BROTLIG || sourceExt.compare(".BRLG") == 0 || destExt.compare(".BRLG") == 0;
 }
 
+// Default result logs are written to the working directory, which can be the read only
+// install folder. In that case fall back to the per user application data folder.
+static std::string GetDefaultLogFilePath(const char* fileName)
+{
+    if (CMP_IsDirWritable("."))
+        return fileName;
+
+    std::string logDir = CMP_GetUserDataDir("logs");
+    if (logDir.empty())
+        return fileName;
+
+    return CMP_JoinPath(logDir, fileName);
+}
+
 static CMP_GPUDecode DecodeWith(const char* strParameter)
 {
     if (strcmp(strParameter, "DirectX") == 0)
@@ -309,7 +329,7 @@ static bool ProcessSingleFlags(const char* strCommand)
         g_CmdPrams.logresultsToFile = true;
         g_CmdPrams.logresults       = true;
         isSet                       = true;
-        g_CmdPrams.LogProcessResultsFile.assign(LOG_PROCESS_RESULTS_FILE_TXT);
+        g_CmdPrams.LogProcessResultsFile.assign(GetDefaultLogFilePath(LOG_PROCESS_RESULTS_FILE_TXT));
     }
     else if ((strcmp(strCommand, "-logcsv") == 0))
     {
@@ -317,7 +337,7 @@ static bool ProcessSingleFlags(const char* strCommand)
         g_CmdPrams.logresultsToFile = true;
         g_CmdPrams.logresults       = true;
         isSet                       = true;
-        g_CmdPrams.LogProcessResultsFile.assign(LOG_PROCESS_RESULTS_FILE_CSV);
+        g_CmdPrams.LogProcessResultsFile.assign(GetDefaultLogFilePath(LOG_PROCESS_RESULTS_FILE_CSV));
     }
     else if (strcmp(strCommand, "-UseGPUDecompress") == 0)
     {
@@ -851,9 +871,8 @@ static bool ProcessCMDLineOptions(const char* strCommand, const char* strParamet
                 filter_num++;
                 if (supportedExtensions.find(currentFilter) == std::string::npos)
                 {
-                    char err[128];
-                    sprintf(err, "[%s] file filter is not supported", currentFilter.c_str());
-                    throw(err);
+                    // currentFilter is user supplied and unbounded, so the message cannot use a fixed buffer.
+                    throw std::runtime_error("[" + currentFilter + "] file filter is not supported");
                 }
                 else if (filter_num > 1 && strcmp(strCommand, "-fx") == 0)
                 {
@@ -970,6 +989,12 @@ static bool ProcessCMDLineOptions(const char* strCommand, const char* strParamet
             if (strlen(strParameter) == 0)
                 throw "Number of threads not specified.";
 
+            if (strlen(strParameter) >= AMD_MAX_CMD_PARAM)
+                throw "Number of threads is invalid.";
+
+            if (g_CmdPrams.CompressOptions.NumCmds >= AMD_MAX_CMDS)
+                throw "Too many codec command options specified.";
+
             g_CmdPrams.CompressOptions.dwnumThreads = std::stoi(strParameter);
 
             // Add to the cmd set because codecs expect a NumThreads parameter to exist
@@ -1004,14 +1029,21 @@ static bool ProcessCMDLineOptions(const char* strCommand, const char* strParamet
                     if (strCommand[1] == '-')
                         str++;
 
-                    if (strlen(str) > AMD_MAX_CMD_STR)
+                    // The destinations are arrays of exactly these sizes, so an equal length still
+                    // overruns them by the terminating null.
+                    if (strlen(str) >= AMD_MAX_CMD_STR)
                     {
                         throw "Command option is invalid";
                     }
 
-                    if (strlen(strParameter) > AMD_MAX_CMD_PARAM)
+                    if (strlen(strParameter) >= AMD_MAX_CMD_PARAM)
                     {
                         throw "Command Parameter is invalid";
+                    }
+
+                    if (g_CmdPrams.CompressOptions.NumCmds >= AMD_MAX_CMDS)
+                    {
+                        throw "Too many codec command options specified.";
                     }
 
                     strcpy(g_CmdPrams.CompressOptions.CmdSet[g_CmdPrams.CompressOptions.NumCmds].strCommand, str);
@@ -1099,6 +1131,9 @@ static bool ProcessCMDLineOptions(const char* strCommand, const char* strParamet
                                     throw "Unable to create destination dir";
                             }
 
+                            // Don't fail here if the directory turns out to be read only (e.g. a
+                            // path under a read only install): the destination writability gate
+                            // later in the pipeline redirects to a per user writable folder instead.
                             g_CmdPrams.DestDir = directory;
                         }
                         else
@@ -2801,6 +2836,8 @@ int ProcessCMDLine(CMP_Feedback_Proc pFeedbackProc, MipSet* p_userMipSetIn)
     CMP_FORMAT  saveDestFormat = CMP_FORMAT_Unknown;
     std::string saveDestName   = "";
 
+    ScopedTempFiles transcodeTempFiles;
+
     //  With a user suppiled Mip Map dont delete it on exit
     bool Delete_gMipSetIn = false;
 
@@ -2903,15 +2940,37 @@ int ProcessCMDLine(CMP_Feedback_Proc pFeedbackProc, MipSet* p_userMipSetIn)
         }
     }
 
-    // Quit if destination folder doesn't exist
+    // Quit if the destination folder doesn't exist or cannot be written to. A common cause is
+    // a source file (or default cwd-relative destination) loaded from a read only install
+    // location; in that case redirect the output to a per user writable folder instead of
+    // failing outright, unless the user explicitly picked a destination that is writable.
     {
         std::string fullPath = CMP_GetPath(g_CmdPrams.DestFile);
-        if (fullPath.size() > 0)
-        {  // not at current dir
-            if (!CMP_DirExists(fullPath))
+        if (fullPath.size() == 0)
+            fullPath = ".";  // destination is the current working directory
+
+        if (!CMP_DirExists(fullPath))
+        {
+            LogErrorToCSVFile(ANALYSIS_DESTINATION_TYPE_NOT_SUPPORTED);
+            PrintInfo("Error: Destination folder does not exist for: %s\n", fullPath.c_str());
+            return -2;
+        }
+
+        if (!CMP_IsDirWritable(fullPath))
+        {
+            std::string userResultsDir = CMP_GetUserResultsDir();
+            if (!userResultsDir.empty())
+            {
+                std::string fileName = CMP_GetFileNameAndExt(g_CmdPrams.DestFile);
+                g_CmdPrams.DestDir   = userResultsDir;
+                g_CmdPrams.DestFile  = CMP_JoinPath(userResultsDir, fileName);
+                if (!g_CmdPrams.silent)
+                    PrintInfo("Warning: No write access to destination folder %s: output redirected to %s\n", fullPath.c_str(), userResultsDir.c_str());
+            }
+            else
             {
                 LogErrorToCSVFile(ANALYSIS_DESTINATION_TYPE_NOT_SUPPORTED);
-                PrintInfo("Error: Destination folder does not exist for: %s\n", fullPath.c_str());
+                PrintInfo("Error: No write access to destination folder: %s\n", fullPath.c_str());
                 return -2;
             }
         }
@@ -3700,8 +3759,16 @@ int ProcessCMDLine(CMP_Feedback_Proc pFeedbackProc, MipSet* p_userMipSetIn)
                     saveDestFormat = g_CmdPrams.CompressOptions.DestFormat;
                     saveDestName   = g_CmdPrams.DestFile;
 
+                    const std::string transcodeTempFile = transcodeTempFiles.Create();
+                    if (transcodeTempFile.empty())
+                    {
+                        PrintInfo("Transcoding Error: unable to create an intermediate file, no writable location was available.\n");
+                        cleanup(Delete_gMipSetIn, SwizzledMipSetIn);
+                        return -1;
+                    }
+
                     g_CmdPrams.CompressOptions.DestFormat = destFormat;
-                    g_CmdPrams.DestFile                   = "transcode_temp.dds";
+                    g_CmdPrams.DestFile                   = transcodeTempFile;
 
                     //===================================================
                     // flag a Decompress followed by a compress process

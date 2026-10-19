@@ -25,9 +25,11 @@
 
 #include "plugininterface.h"
 #include "cmp_plugininterface.h"
+#include "atiformats.h"
 #include "ccpu_hpc.h"
 
 #include <chrono>
+#include <system_error>
 #include <thread>
 
 using namespace std::chrono;
@@ -43,6 +45,56 @@ char DbgTracer::buff[MAX_DBGBUFF_SIZE];
 char DbgTracer::PrintBuff[MAX_DBGPPRINTBUFF_SIZE];
 #endif
 
+// Bytes per channel of the source buffers the encoders index into. 0 for formats the HPC path
+// does not feed to an encoder.
+static size_t CMP_HPCSourceChannelSize(CMP_FORMAT format)
+{
+    switch (GetChannelFormat(format))
+    {
+    case CF_8bit:
+    case CF_2101010:
+    case CF_1010102:
+        return 1;
+    case CF_Float16:
+    case CF_16bit:
+        return 2;
+    case CF_Float32:
+    case CF_32bit:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
+// Channels per pixel. Only the narrow layouts need listing; every other format the encoders
+// accept is 4 channel.
+static size_t CMP_HPCSourceChannelCount(CMP_FORMAT format)
+{
+    switch (format)
+    {
+    case CMP_FORMAT_R_8:
+    case CMP_FORMAT_R_8_S:
+    case CMP_FORMAT_R_16:
+    case CMP_FORMAT_R_16F:
+    case CMP_FORMAT_R_32F:
+        return 1;
+    case CMP_FORMAT_RG_8:
+    case CMP_FORMAT_RG_8_S:
+    case CMP_FORMAT_RG_16:
+    case CMP_FORMAT_RG_16F:
+    case CMP_FORMAT_RG_32F:
+        return 2;
+    case CMP_FORMAT_RGB_888:
+    case CMP_FORMAT_RGB_888_S:
+    case CMP_FORMAT_BGR_888:
+    case CMP_FORMAT_RGB_32F:
+    case CMP_FORMAT_BGR_32F:
+        return 3;
+    default:
+        return 4;
+    }
+}
+
 unsigned int _stdcall ProcEncode(void* param)
 {
     using namespace std::chrono;
@@ -57,7 +109,8 @@ unsigned int _stdcall ProcEncode(void* param)
     {
         if (tp->run == true)
         {
-            tp->cmp_encoder->CompressBlock(tp->x, tp->y, tp->in, tp->out);
+            if (tp->cmp_encoder->CompressBlock(tp->x, tp->y, tp->in, tp->out) != 0 && tp->blockFailed)
+                tp->blockFailed->store(true);
             tp->run = false;
         }
 
@@ -102,6 +155,16 @@ CodecError CCPU_HPC::CreateEncoderThreadPool()
 {
     if (!m_ThreadCodecInitialized)
     {
+        const auto cleanupPartialPool = [this](int encoderCount) {
+            JoinStartedEncoderThreads();
+            for (int index = 0; index < encoderCount; ++index)
+            {
+                m_plugin_compute->TC_Destroy(m_encoder[index]);
+                m_encoder[index]                            = NULL;
+                m_EncodeParameterStorage[index].cmp_encoder = NULL;
+            }
+        };
+
         //printf("m_ThreadCodecInitialized %d\n",m_NumEncodingThreads);
         // Create the encoding threads in the suspended state
         for (int i = 0; i < m_NumEncodingThreads; i++)
@@ -111,19 +174,23 @@ CodecError CCPU_HPC::CreateEncoderThreadPool()
             // Cleanup if problem!
             if (!m_encoder[i])
             {
-                for (int j = 0; j < i; j++)
-                {
-                    m_plugin_compute->TC_Destroy(m_encoder[j]);
-                }
+                // Workers started by earlier iterations are still polling m_EncodeParameterStorage
+                // and using their encoder, so stop them before either is destroyed.
+                cleanupPartialPool(i);
                 return CE_Unknown;
             }
 
             m_encoder[i]->m_quality   = m_SourceInfo.m_fquality;
             m_encoder[i]->m_srcHeight = m_SourceInfo.m_src_height;
             m_encoder[i]->m_srcWidth  = m_SourceInfo.m_src_width;
-            m_encoder[i]->m_xdim      = m_SourceInfo.m_width_in_blocks;
-            m_encoder[i]->m_ydim      = m_SourceInfo.m_height_in_blocks;
-            m_encoder[i]->m_zdim      = 0;
+            // pass actual source buffer size to the encoder so
+            // CompressBlock() can validate that pixel indices stay in-bounds.
+            // Saturate rather than truncate: a wrapped count would reject a valid source.
+            m_encoder[i]->m_srcBufferSizeInPixels =
+                (m_source_buffer_size_in_pixels > UINT32_MAX) ? UINT32_MAX : static_cast<unsigned int>(m_source_buffer_size_in_pixels);
+            m_encoder[i]->m_xdim = m_SourceInfo.m_width_in_blocks;
+            m_encoder[i]->m_ydim = m_SourceInfo.m_height_in_blocks;
+            m_encoder[i]->m_zdim = 0;
 
             m_EncodeParameterStorage[i].cmp_encoder = m_encoder[i];
             m_EncodeParameterStorage[i].run         = false;
@@ -132,8 +199,18 @@ CodecError CCPU_HPC::CreateEncoderThreadPool()
             m_EncodeParameterStorage[i].out         = NULL;
             m_EncodeParameterStorage[i].x           = 0;
             m_EncodeParameterStorage[i].y           = 0;
+            m_EncodeParameterStorage[i].blockFailed = &m_blockEncodeFailed;
 
-            m_EncodingThreadHandle[i] = std::thread(ProcEncode, (void*)&m_EncodeParameterStorage[i]);
+            try
+            {
+                m_EncodingThreadHandle[i] = std::thread(ProcEncode, (void*)&m_EncodeParameterStorage[i]);
+            }
+            catch (const std::system_error&)
+            {
+                cleanupPartialPool(i + 1);
+                return CE_Unknown;
+            }
+            m_StartedThreadCount = static_cast<CMP_WORD>(i + 1);
         }
 
         m_ThreadCodecInitialized = true;
@@ -142,38 +219,49 @@ CodecError CCPU_HPC::CreateEncoderThreadPool()
     return CE_OK;
 }
 
+void CCPU_HPC::JoinStartedEncoderThreads()
+{
+    for (CMP_WORD dwThread = 0; dwThread < m_StartedThreadCount; dwThread++)
+    {
+        m_EncodeParameterStorage[dwThread].exit = true;
+        std::thread& curThread                  = m_EncodingThreadHandle[dwThread];
+        if (curThread.joinable())
+            curThread.join();
+    }
+    m_StartedThreadCount = 0;
+}
+
 void CCPU_HPC::DeleteEncoderThreadPool()
 {
     // Make sure threads are not in running any state
     // Wait for all the live threads to finish any current work
-    if (m_ThreadCodecInitialized)
+    JoinStartedEncoderThreads();
+
+    if (!m_EncodeParameterStorage)
     {
-        // Wait for Threads to exit
-        for (CMP_DWORD dwThread = 0; dwThread < m_NumEncodingThreads; dwThread++)
-        {
-            m_EncodeParameterStorage[dwThread].exit = true;
-            std::thread& curThread                  = m_EncodingThreadHandle[dwThread];
-            curThread.join();
-        }
-
-        // Clean up data storage
-        for (unsigned int i = 0; i < m_NumEncodingThreads; i++)
-        {
-            if (m_encoder[i])
-                m_plugin_compute->TC_Destroy(m_encoder[i]);
-
-            m_EncodeParameterStorage[i].cmp_encoder = NULL;
-
-            m_EncodeParameterStorage[i].run  = false;
-            m_EncodeParameterStorage[i].exit = false;
-            m_EncodeParameterStorage[i].in   = NULL;
-            m_EncodeParameterStorage[i].out  = NULL;
-            m_EncodeParameterStorage[i].x    = 0;
-            m_EncodeParameterStorage[i].y    = 0;
-        }
-
         m_ThreadCodecInitialized = false;
+        return;
     }
+
+    // Clean up data storage
+    for (unsigned int i = 0; i < m_NumEncodingThreads; i++)
+    {
+        if (m_encoder[i] && m_plugin_compute)
+            m_plugin_compute->TC_Destroy(m_encoder[i]);
+        m_encoder[i] = NULL;
+
+        m_EncodeParameterStorage[i].cmp_encoder = NULL;
+
+        m_EncodeParameterStorage[i].run         = false;
+        m_EncodeParameterStorage[i].exit        = false;
+        m_EncodeParameterStorage[i].in          = NULL;
+        m_EncodeParameterStorage[i].out         = NULL;
+        m_EncodeParameterStorage[i].x           = 0;
+        m_EncodeParameterStorage[i].y           = 0;
+        m_EncodeParameterStorage[i].blockFailed = NULL;
+    }
+
+    m_ThreadCodecInitialized = false;
 }
 
 CodecError CCPU_HPC::EncodeThreadBlock(int x, int y, void* in, void* out)
@@ -227,7 +315,13 @@ CodecError CCPU_HPC::EncodeThreadBlock(int x, int y, void* in, void* out)
         m_EncodeParameterStorage[0].x = x;
         m_EncodeParameterStorage[0].y = y;
 
-        m_encoder[0]->CompressBlock(x, y, in, out);
+        if (m_encoder[0]->CompressBlock(x, y, in, out) != 0)
+        {
+            // The block encoder rejected the block (bounds/overflow guard); the output block was
+            // not written, so the failure must not be reported as a successful encode.
+            m_blockEncodeFailed.store(true);
+            return CE_Unknown;
+        }
     }
     return CE_OK;
 }
@@ -256,11 +350,15 @@ void CCPU_HPC::Init()
 
     m_plugin_compute         = NULL;
     m_ThreadCodecInitialized = false;
+    m_StartedThreadCount     = 0;
+    m_blockEncodeFailed.store(false);
     m_current_format         = CMP_FORMAT_Unknown;
     m_computeShaderElapsedMS = 0.0f;
     m_num_blocks             = 0;
     m_CmpMTxPerSec           = 0.0f;
 
+    m_source_buffer_size           = 0;
+    m_source_buffer_size_in_pixels = 0;
     //printf("HPC Threads input %d\n",m_kernel_options->threads);
     if (m_kernel_options->threads != 1)
     {
@@ -311,6 +409,10 @@ void CCPU_HPC::SetComputeOptions(ComputeOptions* CLOptions)
 
 CCPU_HPC::~CCPU_HPC()
 {
+    // Compress() normally pairs Create/DeleteEncoderThreadPool, but if it returned early the
+    // workers are still polling the storage that is freed below.
+    DeleteEncoderThreadPool();
+
     if (m_EncodeParameterStorage)
     {
         delete[] m_EncodeParameterStorage;
@@ -410,8 +512,42 @@ CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet&
 
     // Get Texture info
     m_source_buffer_size = SrcTexture.dwDataSize;
-    p_destination        = destTexture.pData;
-    m_destination_size   = destTexture.dwDataSize;
+    // The encoders index the source as 4 channels per pixel; BC6H uses CMP_HALF channels,
+    // so the byte size cannot be divided by a fixed 4 to get a pixel count. m_format tracks the
+    // buffer TC_Compress() swapped in, whereas m_ChannelFormat still describes the original.
+    const size_t srcChannelSize = CMP_HPCSourceChannelSize(SrcTexture.m_format);
+    if (srcChannelSize == 0)
+        return CMP_ERR_UNSUPPORTED_SOURCE_FORMAT;  // fail closed: without this the encoder bounds guard would be disabled
+
+    // A narrower source would make the 4-channel pixel count below an underestimate, silently
+    // failing every block in the encoder bounds guard. Reject it here with a meaningful error
+    // instead: CreateCompatibleBuffer is expected to have widened the buffer already.
+    if (CMP_HPCSourceChannelCount(SrcTexture.m_format) != 4)
+        return CMP_ERR_UNSUPPORTED_SOURCE_FORMAT;
+
+    m_source_buffer_size_in_pixels = m_source_buffer_size / (4 * srcChannelSize);
+    if (m_source_buffer_size != 0 && m_source_buffer_size_in_pixels == 0)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+    p_destination      = destTexture.pData;
+    m_destination_size = destTexture.dwDataSize;
+
+    // The encode loop writes one compressed block per padded block coordinate at offsets
+    // derived from the claimed dimensions, so a TC_Compress() caller that supplies an undersized
+    // destination MipSet would have the workers write past it. CMP_CalculateBufferSize() rounds the
+    // dimensions up to whole blocks exactly as the loop does, and is what CMP_ProcessTexture()
+    // already uses to size the allocation.
+    CMP_Texture requiredDest  = {};
+    requiredDest.dwSize       = sizeof(requiredDest);
+    requiredDest.dwWidth      = SrcTexture.dwWidth;
+    requiredDest.dwHeight     = SrcTexture.dwHeight;
+    requiredDest.dwPitch      = 0;
+    requiredDest.format       = destTexture.m_format;
+    requiredDest.nBlockWidth  = destTexture.m_nBlockWidth;
+    requiredDest.nBlockHeight = destTexture.m_nBlockHeight;
+
+    const CMP_DWORD requiredDestSize = CMP_CalculateBufferSize(&requiredDest);
+    if (p_destination == NULL || requiredDestSize == 0 || m_destination_size < requiredDestSize)
+        return CMP_ERR_INVALID_DEST_TEXTURE;
 
     CMP_UINT m_padded_width_in_blocks;
     CMP_UINT m_padded_height_in_blocks;
@@ -450,7 +586,16 @@ CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet&
         CMP_DOUBLE pFeedbackTimeMS = 0;  // Tracks time spent outside of encoder loop
 
         // initialize the Encoder based on num thread set in Init
-        CreateEncoderThreadPool();
+        m_blockEncodeFailed.store(false);
+        if (CreateEncoderThreadPool() != CE_OK)
+        {
+            // The pool tore down every encoder/worker it had created, so there is nothing to
+            // encode with: m_encoder[0] is NULL and no worker is polling for work. Continuing
+            // would dereference a NULL encoder (single threaded) or spin forever looking for a
+            // free worker slot (multithreaded), so fail closed before the encode loop starts.
+            // TC_Start() has not run yet, so no matching TC_End() is owed here.
+            return CMP_ERR_UNABLE_TO_CREATE_ENCODER;
+        }
 
         // printf("Encoder %x Source %x  Destination %x\n",m_plugin_compute, m_psource,p_destination);
         CMP_FLOAT xyblocks = (CMP_FLOAT)m_padded_height_in_blocks * m_padded_width_in_blocks;
@@ -475,8 +620,11 @@ CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet&
         {
             for (x = 0; x < m_padded_width_in_blocks; x++)
             {
-                EncodeThreadBlock(x, y, (void*)m_psource, (void*)p_destination);
+                if (EncodeThreadBlock(x, y, (void*)m_psource, (void*)p_destination) != CE_OK)
+                    break;
             }
+            if (m_blockEncodeFailed.load())
+                break;
             y++;
             if (pFeedback)
             {
@@ -526,6 +674,13 @@ CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet&
         }
 
         m_plugin_compute->TC_End();
+    }
+
+    if (m_blockEncodeFailed.load())
+    {
+        // At least one block was rejected by the block encoder (e.g. a bounds/overflow guard),
+        // so the destination contains unwritten blocks: report the failure to the caller.
+        return CMP_ERR_GENERIC;
     }
 
     return (CMP_OK);

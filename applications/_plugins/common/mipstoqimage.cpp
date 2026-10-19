@@ -315,7 +315,19 @@ QImage* MIPS2QImage(CMIPS* m_CMips, MipSet* tmpMipSet, int mipmapLevel, int dept
                 return nullptr;
             }
 
-            FloatToByte(image->bits(), mipLevel->m_pfData, tmpMipSet->m_ChannelFormat, mipLevel->m_nWidth, mipLevel->m_nHeight, &params);
+            // QImage pixels are uninitialized until written, so a failed conversion must not be returned.
+            if (FloatToByte(image->bits(),
+                            static_cast<CMP_DWORD>(image->byteCount()),
+                            mipLevel->m_pfData,
+                            mipLevel->m_dwLinearSize,
+                            tmpMipSet->m_ChannelFormat,
+                            static_cast<CMP_DWORD>(mipLevel->m_nWidth),
+                            static_cast<CMP_DWORD>(mipLevel->m_nHeight),
+                            &params) != CMP_OK)
+            {
+                delete image;
+                return nullptr;
+            }
         }
         else if (tmpMipSet->m_ChannelFormat == CF_Float9995E)
         {
@@ -330,7 +342,19 @@ QImage* MIPS2QImage(CMIPS* m_CMips, MipSet* tmpMipSet, int mipmapLevel, int dept
                 return nullptr;
             }
 
-            FloatToByte(image->bits(), mipLevel->m_pfData, tmpMipSet->m_ChannelFormat, mipLevel->m_nWidth, mipLevel->m_nHeight, &params);
+            // QImage pixels are uninitialized until written, so a failed conversion must not be returned.
+            if (FloatToByte(image->bits(),
+                            static_cast<CMP_DWORD>(image->byteCount()),
+                            mipLevel->m_pfData,
+                            mipLevel->m_dwLinearSize,
+                            tmpMipSet->m_ChannelFormat,
+                            static_cast<CMP_DWORD>(mipLevel->m_nWidth),
+                            static_cast<CMP_DWORD>(mipLevel->m_nHeight),
+                            &params) != CMP_OK)
+            {
+                delete image;
+                return nullptr;
+            }
         }
         else if (tmpMipSet->m_ChannelFormat == CF_16bit)
         {

@@ -147,6 +147,7 @@ target_include_directories(CompressonatorGUI-bin PRIVATE
     ${PROJECT_SOURCE_DIR}/cmp_compressonatorlib
     ${PROJECT_SOURCE_DIR}/cmp_framework/
     ${PROJECT_SOURCE_DIR}/cmp_framework/common/half
+    ${PROJECT_SOURCE_DIR}/applications/common
     ${PROJECT_SOURCE_DIR}/applications/_plugins/common
     ${PROJECT_SOURCE_DIR}/applications/_plugins/cimage
     ${PROJECT_SOURCE_DIR}/applications/_plugins/canalysis/analysis
@@ -176,6 +177,13 @@ if(CMP_HOST_WINDOWS)
         AUTOMOC_COMPILER_PREDEFINES ON
         OUTPUT_NAME "compressonator"
     )
+    # cmp_fileio.cpp uses token/security descriptor APIs
+    target_link_libraries(CompressonatorGUI-bin advapi32)
+    # Enable runtime DLL security check for ALL DLLs (including Qt5, OpenCV, glew)
+    if(OPTION_CMP_DLL_SECURITY_CHECK)
+        target_compile_definitions(CompressonatorGUI-bin PRIVATE DLL_SECURITY_CHECK_ALL_DLLS)
+        target_link_libraries(CompressonatorGUI-bin wintrust crypt32)
+    endif()
 else()
     set_target_properties(CompressonatorGUI-bin PROPERTIES
         FOLDER ${PROJECT_FOLDER_APPS}

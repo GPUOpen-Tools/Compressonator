@@ -48,6 +48,7 @@
 #include "atiformats.h"
 #include "textureio.h"
 #include "common.h"
+#include "cmp_fileio.h"
 // JSon
 #include "json/json.hpp"
 // Mesh
@@ -68,6 +69,14 @@
 
 #define TREE_LevelType 0   // Treeview index of data column variant data storage for TREETYPE_...
 #define TREE_SourceInfo 1  // Treeview index of data column variant data storage for Source data
+
+// Per user fallback for processed output when the requested destination folder is read
+// only, such as the sample images installed under %ProgramFiles%.
+// Returns an empty string when no writable location could be created.
+inline QString CMP_GetUserResultsFolder()
+{
+    return QString::fromStdString(CMP_GetUserResultsDir());
+}
 
 // =======================================================
 // COMPRESSION DATA

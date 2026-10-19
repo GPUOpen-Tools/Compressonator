@@ -558,11 +558,23 @@ void acImageView::UpdatePixmapImage()
     else
         mipset = m_MipImages->mipset;
 
-    MipLevel*         mipLevel      = m_imageloader->getCMips()->GetMipLevel(mipset, m_currentMiplevel, m_depthIndex);
+    MipLevel* mipLevel = m_imageloader->getCMips()->GetMipLevel(mipset, m_currentMiplevel, m_depthIndex);
+    if (!mipLevel)
+        return;
+
     CMP_ChannelFormat channelFormat = mipset->m_ChannelFormat;
     FloatParams       params(&m_imageloader->m_options);
 
-    FloatToByte(workingImage.bits(), mipLevel->m_pfData, channelFormat, mipLevel->m_nWidth, mipLevel->m_nHeight, &params);
+    // Leave the currently displayed pixmap untouched if the source cannot be converted.
+    if (FloatToByte(workingImage.bits(),
+                    static_cast<CMP_DWORD>(workingImage.byteCount()),
+                    mipLevel->m_pfData,
+                    mipLevel->m_dwLinearSize,
+                    channelFormat,
+                    static_cast<CMP_DWORD>(mipLevel->m_nWidth),
+                    static_cast<CMP_DWORD>(mipLevel->m_nHeight),
+                    &params) != CMP_OK)
+        return;
 
     m_imageItem_Processed->setPixmap(QPixmap::fromImage(workingImage));
 }

@@ -27,6 +27,8 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#include <libloaderapi.h>
+#include "dll_security_check.h"
 #endif
 
 #if (OPTION_CMP_QT == 1)
@@ -103,7 +105,7 @@ CMIPS*               g_CMIPS;  // Global MIPS functions shared between app and a
 
 void AboutCompressonator()
 {
-    char year[5] = "2024";
+    char year[5] = "2026";
 
 #ifdef USE_AUTODATE
     time_t now     = time(0);
@@ -518,6 +520,47 @@ void g_APC_CompressBlock(void* in, void* out, void* blockoptions)
 
 int main(int argc, char* argv[])
 {
+#if defined(_WIN32) && defined(DLL_SECURITY_CHECK_ALL_DLLS)
+    // Apply DLL hijacking mitigation
+    // This must be the first call in main()
+    const bool dllLoadingHardened = DllSecurity::SecureDllLoading();
+
+    // Validate DLL integrity after secure loading
+    // Detects DLL proxy attacks and suspicious file modifications
+    // This is turned on when Binary Security is enabled in the build configuration
+    // Logging is suppressed so a successful scan never pollutes stdout for scripted use;
+    // only failures are reported, on stderr.
+#if defined(NDEBUG)
+    // Dev/debug builds use locally-built, unsigned DLLs that would always fail this check,
+    // so only release builds (where every shipped DLL is AMD-signed) run the scan at all.
+    // The search-order hardening is defense in depth for runtime LoadLibrary calls, not an
+    // integrity check, so a host that cannot apply it is warned rather than blocked.
+    if (!dllLoadingHardened)
+        fprintf(stderr, "Warning: unable to apply the restricted DLL search order.\n");
+
+    // The DLL trust scan above only covers the application directory, so plugin discovery must
+    // not fall back to a PATH-found directory either.
+    g_pluginManager.restrictPluginSearchToApplicationDirectory();
+
+    DllSecurity::SecurityScanResult result = DllSecurity::CheckDllSecurity(false);
+    if (!result.isSecure)
+    {
+        fprintf(stderr,
+                "DLL integrity check failed: %d invalid signature(s), %d suspicious file(s).\n",
+                result.invalidSignatures,
+                (int)result.suspiciousFiles.size());
+        for (const std::wstring& suspicious : result.suspiciousFiles)
+            fprintf(stderr, "  - %ls\n", suspicious.c_str());
+        for (const std::wstring& warning : result.warnings)
+            fprintf(stderr, "  ! %ls\n", warning.c_str());
+        fprintf(stderr, "Exiting application.\n");
+        return -1;
+    }
+#else
+    (void)dllLoadingHardened;
+#endif
+#endif
+
     // Check if print status line has been assigned
     // if not get it a default to printf
     if (PrintStatusLine == NULL)

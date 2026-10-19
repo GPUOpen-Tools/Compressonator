@@ -61,7 +61,7 @@ find_package(Qt5 REQUIRED QUIET
 
 add_library(ExtQt5 INTERFACE)
 
-target_link_libraries(ExtQt5 
+target_link_libraries(ExtQt5
     INTERFACE
         Qt5::Core
         ${LIB_PNG}
@@ -81,7 +81,7 @@ endif()
 
 add_library(ExtQt5Widgets INTERFACE)
 target_link_libraries(ExtQt5Widgets
-    INTERFACE    
+    INTERFACE
         Qt5::Widgets
 )
 
@@ -93,35 +93,12 @@ if (OPTION_BUILD_APPS_CMP_GUI)
     )
 
     add_library(ExtQt5ForGUI INTERFACE)
-    target_link_libraries(ExtQt5ForGUI 
+    target_link_libraries(ExtQt5ForGUI
         INTERFACE
         ExtQt5
         Qt5::Qml
         Qt5::QuickWidgets
-        Qt5::WebEngineWidgets 
+        Qt5::WebEngineWidgets
         Qt5::Xml
 )
-endif()
-
-if (CMP_HOST_LINUX AND OPTION_BUILD_APPS_CMP_GUI)
-
-    find_library(LIBICUDATA NAMES libicudata.so.56 PATHS ${QT_LIB_DIR}/lib)
-    if (LIBICUDATA STREQUAL "LIBICUDATA-NOTFOUND")
-        message(FATAL_ERROR "libicudata not found in Qt submodule")
-    endif()
-    find_library(LIBICUUC NAMES libicuuc.so.56 PATHS ${QT_LIB_DIR}/lib)
-    if (LIBICUUC STREQUAL "LIBICUUC-NOTFOUND")
-        message(FATAL_ERROR "libicuuc not found in Qt submodule")
-    endif()
-    find_library(LIBICUI18N NAMES libicui18n.so.56 PATHS ${QT_LIB_DIR}/lib)
-    if (LIBICUI18N STREQUAL "LIBICUI18N-NOTFOUND")
-        message(FATAL_ERROR "libicui18n not found in Qt submodule")
-    endif()
-
-    target_link_libraries(ExtQt5ForGUI 
-        INTERFACE
-            ${LIBICUDATA}
-            ${LIBICUUC}
-            ${LIBICUI18N}
-    )
 endif()

@@ -63,7 +63,7 @@ private:
     QWidget*      m_parent;
 };
 
-#define COMPRESSONATOR_HOME "http://gpuopen.com/gaming-product/compressonator/"
+#define COMPRESSONATOR_HOME "https://gpuopen.com/compressonator/"
 #define URL_FILE "file:///"
 #define COMPRESSONATOR_GETTING_STARTED "Documents/gui_tool/getting_started/gettingstarted.html"
 #define COMPRESSONATOR_USER_GUIDE "Documents/gui_tool/user_guide/index.html"

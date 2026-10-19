@@ -48,7 +48,7 @@ using namespace CMP_Compute_Base;
 struct OpenCLBinary_Header
 {
     unsigned int version;
-    long         crc32;
+    unsigned int crc32;
 };
 
 class COpenCL : public ComputeBase
@@ -80,6 +80,7 @@ private:
     // Device Info
     std::string m_deviceName;
     std::string m_version;
+    std::string m_driverVersion;
     cl_uint     m_maxUCores;
 
     // Internal
@@ -130,6 +131,9 @@ private:
 
     long file_size(FILE* p_file);
     bool load_file();
+
+    // Cache file for the compiled kernel binary, keyed on the device and driver it was built for.
+    std::string BinaryCacheFilePath() const;
 
     // Need to fill these
     CMP_BYTE*   p_destination;

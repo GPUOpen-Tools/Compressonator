@@ -46,6 +46,9 @@ struct ThreadParam
     int               y;
     std::atomic<bool> run;
     std::atomic<bool> exit;
+    // Shared failure flag: a worker sets it when its block encoder rejects a block (e.g. a
+    // bounds/overflow guard), so the failure is not lost when the worker's return is discarded.
+    std::atomic<bool>* blockFailed = nullptr;
 };
 
 using namespace CMP_Compute_Base;
@@ -89,6 +92,15 @@ private:
     void         FinishThreadEncoding();
     CodecError   EncodeThreadBlock(int x, int y, void* in, void* out);
     bool         m_ThreadCodecInitialized;
+    // Workers actually started. Tracked separately from m_ThreadCodecInitialized so a pool that
+    // failed part-way through creation is still joined before m_EncodeParameterStorage is freed.
+    // Initialised here (not only in Init()) so the destructor's DeleteEncoderThreadPool() can
+    // never join an indeterminate number of threads if construction fails before Init() runs.
+    CMP_WORD m_StartedThreadCount = 0;
+    void     JoinStartedEncoderThreads();
+    // Set when any block encoder call fails, on either the single-threaded or worker path,
+    // so Compress() never reports CMP_OK for an output block that was never written.
+    std::atomic<bool> m_blockEncodeFailed{false};
 
     // Image data
     std::string    m_source_file;
@@ -96,6 +108,7 @@ private:
     KernelOptions* m_kernel_options;
     size_t         m_destination_size;
     size_t         m_source_buffer_size;
+    size_t         m_source_buffer_size_in_pixels;
     Source_Info    m_SourceInfo;
     unsigned char* p_destination;
     CMP_UINT       m_width_in_blocks;

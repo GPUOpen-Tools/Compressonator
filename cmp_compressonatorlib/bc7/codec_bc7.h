@@ -28,6 +28,7 @@
 #ifndef _CODEC_BC7_H_INCLUDED_
 #define _CODEC_BC7_H_INCLUDED_
 
+#include <atomic>
 #include <thread>
 
 #include "bc7_encode.h"
@@ -48,11 +49,13 @@ typedef struct
 
 struct BC7EncodeThreadParam
 {
-    BC7BlockEncoder*  encoder;
-    double            in[MAX_SUBSET_SIZE][MAX_DIMENSION_BIG];
-    CMP_BYTE*         out;
-    volatile CMP_BOOL run;
-    volatile CMP_BOOL exit;
+    BC7BlockEncoder* encoder;
+    double           in[MAX_SUBSET_SIZE][MAX_DIMENSION_BIG];
+    CMP_BYTE*        out;
+    // Atomics, not volatile: these are the synchronisation between the producer and the worker,
+    // and volatile provides no inter-thread ordering or visibility guarantees.
+    std::atomic<bool> run;
+    std::atomic<bool> exit;
 };
 
 class CCodec_BC7 : public CCodec_DXTC

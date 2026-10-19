@@ -93,6 +93,10 @@ CMP_ERROR Plugin_CGpuHW::TC_Compress(void* options, MipSet& srcTexture, MipSet& 
 #ifdef ENABLE_MAKE_COMPATIBLE_API
     ConvertedBuffer tempBuffer = CreateCompatibleBuffer(destTexture.m_format, &srcTexture);
 
+    // A failed conversion returns an empty buffer; passing its null data on would crash the encoder.
+    if (tempBuffer.data == NULL)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
     CMP_FORMAT prevFormat   = srcTexture.m_format;
     CMP_BYTE*  prevData     = srcTexture.pData;
     CMP_DWORD  prevDataSize = srcTexture.dwDataSize;

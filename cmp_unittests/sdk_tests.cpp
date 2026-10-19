@@ -284,3 +284,22 @@ TEST_CASE("CalcBufferSize_All_Formats", "[SDK]")
     CHECK(CalcBufferSize(CMP_FORMAT_BASIS, width, height, pitch, blockWidth, blockHeight) == expectedSize);
 #endif
 }
+
+#if (OPTION_BUILD_ASTC == 1)
+TEST_CASE("CalcBufferSize_ASTC_VariableFootprint", "[SDK]")
+{
+    const CMP_DWORD width  = 64;
+    const CMP_DWORD height = 64;
+    const CMP_DWORD pitch  = 0;
+
+    // ASTC is always 16 bytes/block regardless of the block footprint (4x4 up to 12x12),
+    // so only the block count should vary with nBlockWidth/nBlockHeight.
+    CHECK(CalcBufferSize(CMP_FORMAT_ASTC, width, height, pitch, 4, 4) == ((width / 4) * (height / 4) * 16));
+    CHECK(CalcBufferSize(CMP_FORMAT_ASTC, width, height, pitch, 8, 8) == ((width / 8) * (height / 8) * 16));
+    CHECK(CalcBufferSize(CMP_FORMAT_ASTC, width, height, pitch, 12, 12) == (((width + 11) / 12) * ((height + 11) / 12) * 16));
+
+    // A caller that forgets to set nBlockWidth/nBlockHeight (left as 0) must not
+    // trigger a divide-by-zero; it should fall back to the 4x4 default like CT_APC does.
+    CHECK(CalcBufferSize(CMP_FORMAT_ASTC, width, height, pitch, 0, 0) == ((width / 4) * (height / 4) * 16));
+}
+#endif

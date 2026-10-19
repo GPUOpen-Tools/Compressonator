@@ -29,13 +29,57 @@
 #include "compressonator.h"
 #include "common.h"
 #include "version.h"
+#include "cmp_fileio.h"
 
 #include <gpu_decode.h>
 
 #include <gltf/tiny_gltf2_utils.h>
 
+#include <QtCore/qdir.h>
+#include <QtCore/qstandardpaths.h>
+#include <QtCore/qfile.h>
+#include <QtCore/qdebug.h>
+
 #include <chrono>
 #include <thread>
+
+namespace
+{
+// Resolves a directory verified writable for storing per-user settings.  The
+// per-user AppLocalDataLocation is tried first; if it cannot be created or is not
+// actually writable, a verified-writable temp directory is used instead of
+// silently falling back to the process working directory, which may be the
+// (read-only for standard users) install directory -- reintroducing the exact
+// failure this per-user location was meant to avoid.
+//
+// Writability is probed via the shared CMP_IsDirWritable() (cmp_fileio.h), which creates
+// its probe file with a unique, PID/tick-based name and CREATE_NEW so it can never collide
+// with -- and truncate -- a pre-existing file in the target directory.
+QString ResolveWritableSettingsDir()
+{
+    const QString appDataPath = QString::fromStdString(CMP_GetUserDataDir());
+    if (!appDataPath.isEmpty() && CMP_IsDirWritable(appDataPath.toStdString()))
+        return appDataPath;
+
+    const QString tempPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (!tempPath.isEmpty() && QDir().mkpath(tempPath) && CMP_IsDirWritable(tempPath.toStdString()))
+    {
+        qWarning(
+            "CompressonatorGUI: per-user settings directory '%s' is unavailable or not writable; "
+            "falling back to verified-writable temp directory '%s'.",
+            qPrintable(appDataPath),
+            qPrintable(tempPath));
+        return tempPath;
+    }
+
+    const QString cwd = QDir::currentPath();
+    qWarning(
+        "CompressonatorGUI: no writable per-user or temp directory was found; settings will be "
+        "attempted at the current working directory '%s' and may not persist.",
+        qPrintable(cwd));
+    return cwd;
+}
+}  // namespace
 
 static signalMsgHandler static_msghandler;
 int                     g_OpenGLMajorVersion = 0;
@@ -175,7 +219,15 @@ cpMainComponents::cpMainComponents(QDockWidget* root_dock, QMainWindow* parent)
 
     m_showAppSettingsDialog = true;
     m_viewDiff              = false;
-    m_sSettingsFile         = "CompressSettings.ini";
+
+    // Settings must be written to a per user writable location: the install
+    // directory is read only for standard users.  ResolveWritableSettingsDir()
+    // verifies actual writability rather than assuming the working directory
+    // is usable if the per-user directory lookup or creation fails.
+    {
+        QString appDataPath = ResolveWritableSettingsDir();
+        m_sSettingsFile     = QDir(appDataPath).absoluteFilePath("CompressSettings.ini");
+    }
 
     if (m_showAppSettingsDialog)
     {
@@ -223,16 +275,6 @@ cpMainComponents::cpMainComponents(QDockWidget* root_dock, QMainWindow* parent)
     m_projectview->setMinimumWidth(200);
     m_parent->addDockWidget(Qt::LeftDockWidgetArea, m_projectview);
 
-    QString   tempSetting = m_sSettingsFile;
-    QFileInfo fileInfo(tempSetting);
-    if (!fileInfo.isWritable())
-    {
-        QFileInfo fileInfo2(m_projectview->m_curProjectFilePathName);
-        m_sSettingsFile = fileInfo2.dir().path();
-        m_sSettingsFile.append(QDir::separator());
-        m_sSettingsFile.append(tempSetting);
-        m_sSettingsFile.replace("/", "\\");
-    }
     //
     m_imagePropertyView = new CImagePropertyView("  Property View", this);
     setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
@@ -450,31 +492,14 @@ void cpMainComponents::OnWelcomePageButtonClick(QString& Request, QString& Msg)
         if (Msg.indexOf(".cprj") == -1)
             Msg.append(PROJECT_EXTENSION);
 
-        // Try the Current Path
-        if (!found)
+        // Try the shared sample folder
         {
-            QString ProjectFile = QDir::currentPath();
-            ProjectFile.append(PROJECT_DIR);
-            ProjectFile.append(Msg);
-            QFile Fout(ProjectFile);
-            if (Fout.exists())
-            {
-                m_projectview->loadProjectFile(ProjectFile);
-                found = true;
-            }
-        }
+            const QString sampleDir = QString::fromStdString(CMP_GetSampleDataDir());
 
-        // Try the Application Dir
-        if (!found)
-        {
-            // First Try looking for the project in sample folder
-            QString ProjectFile = qApp->applicationDirPath();
-            ProjectFile.append(PROJECT_DIR);
-            ProjectFile.append(Msg);
-            QFile Fout(ProjectFile);
-            if (Fout.exists())
+            QString ProjectFile = QDir::cleanPath(sampleDir + PROJECT_DIR + Msg);
+            if (!sampleDir.isEmpty() && QFile::exists(ProjectFile))
             {
-                m_projectview->loadProjectFile(ProjectFile);
+                m_projectview->loadProjectFile(QDir::toNativeSeparators(ProjectFile));
                 found = true;
             }
         }

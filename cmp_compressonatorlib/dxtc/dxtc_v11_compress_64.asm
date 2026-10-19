@@ -579,7 +579,7 @@ ENDIF
             movaps xmm7, xmm3           ; right
             mulps xmm3, [split_point]
             addps xmm7, xmm2            ; left
-            mulps xmm7, [half]            ; centre (probably 0, but what the hell)
+            mulps xmm7, [half]            ; centre (probably 0)
 
             lea rsi, [rbp-TMP_POS_ON_AXIS]
             lea rdi, [expandtable]

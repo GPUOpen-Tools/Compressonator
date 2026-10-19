@@ -1,7 +1,7 @@
 #include "acaboutdlg.h"
 #include "version.h"
 
-#define AC_STR_HelpAboutWebPage "http://gpuopen.com/gaming-product/compressonator/"
+#define AC_STR_HelpAboutWebPage "https://gpuopen.com/compressonator/"
 #define AC_STR_HelpAboutWebPageText "gpuopen.com"
 
 CHelpAboutDialog::CHelpAboutDialog(QWidget* parent)

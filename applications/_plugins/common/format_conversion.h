@@ -112,10 +112,24 @@ ConvertedBuffer CreateCompatibleBuffer(CMP_FORMAT         targetFormat,
                                        CMP_DWORD          srcHeight,
                                        const FloatParams* params = 0);
 
-// Converts 16-bit, 32-bit, or R9G9B9E5 floating point data into RGBA8888 format
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, const MipSet* srcMipSet, const FloatParams* params);
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, const CMP_Texture* srcTexture, const FloatParams* params);
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, CMP_ChannelFormat channelFormat, CMP_DWORD width, CMP_DWORD height, const FloatParams* params);
+// Converts 16-bit, 32-bit, or R9G9B9E5 floating point data into RGBA8888 format.
+// outBufferSize and inBufferSize are the sizes in bytes of the respective buffers;
+// the function returns an error if the declared width*height exceeds either buffer.
+//
+// outBufferSize must be the caller's actual destination allocation size. The MipSet
+// and CMP_Texture overloads cannot derive it (a MipSet/CMP_Texture describes the
+// source, not the destination), so it is passed explicitly rather than assumed to be
+// width * height * 4.
+CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_DWORD outBufferSize, CMP_FLOAT* inBuffer, const MipSet* srcMipSet, const FloatParams* params);
+CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_DWORD outBufferSize, CMP_FLOAT* inBuffer, const CMP_Texture* srcTexture, const FloatParams* params);
+CMP_ERROR FloatToByte(CMP_BYTE*          outBuffer,
+                      CMP_DWORD          outBufferSize,
+                      CMP_FLOAT*         inBuffer,
+                      CMP_DWORD          inBufferSize,
+                      CMP_ChannelFormat  channelFormat,
+                      CMP_DWORD          width,
+                      CMP_DWORD          height,
+                      const FloatParams* params);
 
 // Convert 8-bit integer data into 16-bit float bits
 CMP_ERROR ByteToHalfShort(CMP_HALFSHORT* outBuffer, CMP_BYTE* inBuffer, CMP_DWORD numElements);

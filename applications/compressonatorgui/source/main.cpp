@@ -29,6 +29,12 @@
 
 #include <QApplication>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <libloaderapi.h>
+#include "dll_security_check.h"
+#endif
+
 #define MSG_HANDLER
 
 // Standard App Static Plugin Interfaces for minimal support
@@ -240,6 +246,37 @@ int main(int argc, char** argv)
 {
     try
     {
+#if defined(_WIN32) && defined(DLL_SECURITY_CHECK_ALL_DLLS)
+        // Apply DLL hijacking mitigation
+        // This must be the first call in main()
+        const bool dllLoadingHardened = DllSecurity::SecureDllLoading();
+
+        // Validate DLL integrity after secure loading. ValidateDllSecurity() already shows the
+        // failure dialog (the GUI has no console to display wcout/printf output), so don't add a second one.
+#if defined(NDEBUG)
+        // Dev/debug builds use locally-built, unsigned DLLs that would always fail this check,
+        // so only release builds (where every shipped DLL is AMD-signed) run the scan at all.
+        // The search-order hardening is defense in depth for runtime LoadLibrary calls, not an
+        // integrity check, so a host that cannot apply it is warned rather than blocked.
+        if (!dllLoadingHardened)
+        {
+            MessageBoxW(NULL,
+                        L"The restricted DLL search order could not be applied on this system.\n\n"
+                        L"The application will continue, but runtime plugin loading is less protected against DLL hijacking.",
+                        L"Security Warning",
+                        MB_OK | MB_ICONWARNING | MB_TOPMOST);
+        }
+
+        // The DLL trust scan above only covers the application directory, so plugin discovery
+        // must not fall back to a PATH-found directory either.
+        g_pluginManager.restrictPluginSearchToApplicationDirectory();
+
+        if (!DllSecurity::ValidateDllSecurity())
+            return -1;
+#else
+        (void)dllLoadingHardened;
+#endif
+#endif
         QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
         QApplication app(argc, argv);
 

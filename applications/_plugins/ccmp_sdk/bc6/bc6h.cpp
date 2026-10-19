@@ -61,8 +61,8 @@ Plugin_BC6H::~Plugin_BC6H()
 {
 }
 
-void Plugin_BC6H::TC_Start(){};
-void Plugin_BC6H::TC_End(){};
+void Plugin_BC6H::TC_Start() {};
+void Plugin_BC6H::TC_End() {};
 
 int Plugin_BC6H::TC_PluginSetSharedIO(void* Shared)
 {
@@ -234,6 +234,24 @@ int BC6H_EncodeClass::CompressBlock(unsigned int xBlock, unsigned int yBlock, vo
         return (-1);
     }
 
+    // Guard against integer overflow in m_srcWidth * m_srcHeight.
+    if (m_srcHeight > UINT32_MAX / m_srcWidth)
+        return (-1);  // prevent integer overflow
+
+    // Guard: reject if the actual source buffer (set by the HPC thread pool
+    // via m_srcBufferSizeInPixels) is smaller than the full pixel count implied by
+    // the claimed dimensions.  A value of 0 means "not set" (block-encoder API path
+    // that trusts the caller), so skip the check in that case.
+    CGU_UINT32 totalPixels = (CGU_UINT32)m_srcWidth * (CGU_UINT32)m_srcHeight;
+    if (m_srcBufferSizeInPixels > 0u && m_srcBufferSizeInPixels < totalPixels)
+        return (-1);  // source buffer too small for claimed dimensions
+
+    // Reject block coordinates outside the declared image before any offset is derived from them.
+    // The partial-block path below computes m_srcWidth - xBlock * BlockX, which underflows for an
+    // out-of-range block and indexes p_source_pixels out of bounds; destI would also run past cmpout.
+    if (xBlock >= ((m_srcWidth - 1) / BlockX) + 1 || yBlock >= ((m_srcHeight - 1) / BlockY) + 1)
+        return (-1);
+
     BC6H_Encode_local BC6HEncode_local;
 
     memset(&BC6HEncode_local, 0, sizeof(BC6H_Encode_local));
@@ -251,6 +269,12 @@ int BC6H_EncodeClass::CompressBlock(unsigned int xBlock, unsigned int yBlock, vo
     //Check if it is a complete 4X4 block
     if (((xBlock + 1) * BlockX <= m_srcWidth) && ((yBlock + 1) * BlockY <= m_srcHeight))
     {
+        // Indices below are in CMP_HALF units (BYTEPP channels per pixel); the gather walks
+        // BlockX rows of stride halves, so the last read must stay inside the accepted buffer.
+        const size_t lastIndex = (size_t)srcOffset + 3 * (size_t)stride + (BlockY * BYTEPP - 1);
+        if (m_srcBufferSizeInPixels > 0u && lastIndex >= (size_t)m_srcBufferSizeInPixels * BYTEPP)
+            return (-1);  // stride/dimension combination reads past the source buffer
+
         for (int i = 0; i < BlockX; i++)
         {
             srcidx = i * stride;

@@ -40,7 +40,9 @@
 #include "astc/arm/astc_codec_internals.h"
 #include "debug.h"
 
+#include <atomic>
 #include <chrono>
+#include <system_error>
 #include <cstring>
 
 #ifdef ASTC_COMPDEBUGGER
@@ -70,8 +72,10 @@ struct ASTCEncodeThreadParam
     astc_decode_mode              decode_mode;
     const error_weighting_params* ewp;
 
-    volatile CMP_BOOL run;
-    volatile CMP_BOOL exit;
+    // Atomics, not volatile: these are the synchronisation between the producer and the worker,
+    // and volatile provides no inter-thread ordering or visibility guarantees.
+    std::atomic<bool> run;
+    std::atomic<bool> exit;
 };
 
 static ASTCEncodeThreadParam* g_EncodeParameterStorage = NULL;
@@ -99,52 +103,55 @@ CCodec_ASTC::~CCodec_ASTC()
 {
     if (m_LibraryInitialized)
     {
-        if (m_Use_MultiThreading)
+        // The worker threads are started for every encoding thread slot, including the
+        // single threaded case, so they must always be signalled and joined here. Leaving
+        // them running keeps the thread polling g_EncodeParameterStorage and calling through
+        // its encoder after both have been freed below.
+        // Tell all the live threads that they can exit when they have finished any current work
+        for (int i = 0; i < m_LiveThreads; i++)
         {
-            // Tell all the live threads that they can exit when they have finished any current work
-            for (int i = 0; i < m_LiveThreads; i++)
-            {
-                // If a thread is in the running state then we need to wait for it to finish
-                // any queued work from the producer before we can tell it to exit.
-                //
-                // If we don't wait then there is a race condition here where we have
-                // told the thread to run but it hasn't yet been scheduled - if we set
-                // the exit flag before it runs then its block will not be processed.
+            // If a thread is in the running state then we need to wait for it to finish
+            // any queued work from the producer before we can tell it to exit.
+            //
+            // If we don't wait then there is a race condition here where we have
+            // told the thread to run but it hasn't yet been scheduled - if we set
+            // the exit flag before it runs then its block will not be processed.
 #pragma warning(push)
 #pragma warning(disable : 4127)  //warning C4127: conditional expression is constant
-                while (1)
-                {
-                    if (g_EncodeParameterStorage[i].run != TRUE)
-                    {
-                        break;
-                    }
-                }
-#pragma warning(pop)
-                // Signal to the thread that it can exit
-                g_EncodeParameterStorage[i].exit = TRUE;
-            }
-
-            // Now wait for all threads to have exited
-            if (m_LiveThreads > 0)
+            while (1)
             {
-                for (CMP_DWORD dwThread = 0; dwThread < m_LiveThreads; dwThread++)
+                if (g_EncodeParameterStorage == NULL)
+                    break;
+                if (!g_EncodeParameterStorage[i].run.load(std::memory_order_acquire))
                 {
-                    std::thread& curThread = m_EncodingThreadHandle[dwThread];
-
-                    curThread.join();
+                    break;
                 }
+                // Yield instead of spinning: the worker may be waiting on a core this loop holds.
+                std::this_thread::yield();
             }
+#pragma warning(pop)
+            // Signal to the thread that it can exit
+            if (g_EncodeParameterStorage)
+                g_EncodeParameterStorage[i].exit.store(true, std::memory_order_release);
+        }
 
-            for (unsigned int i = 0; i < m_LiveThreads; i++)
+        // Now wait for all threads to have exited
+        if (m_EncodingThreadHandle)
+        {
+            for (int i = 0; i < m_LiveThreads; i++)
             {
                 std::thread& curThread = m_EncodingThreadHandle[i];
+
+                if (curThread.joinable())
+                    curThread.join();
 
                 curThread = std::thread();
             }
 
             delete[] m_EncodingThreadHandle;
-        }  // MultiThreading
+        }
 
+        m_LiveThreads          = 0;
         m_EncodingThreadHandle = NULL;
 
         if (g_EncodeParameterStorage)
@@ -349,9 +356,11 @@ unsigned int ASTCThreadProcEncode(void* param)
 {
     ASTCEncodeThreadParam* tp = (ASTCEncodeThreadParam*)param;
 
-    while (tp->exit == FALSE)
+    while (!tp->exit.load(std::memory_order_acquire))
     {
-        if (tp->run == TRUE)
+        // Acquire pairs with the producer's release store of run, so the block parameters written
+        // by the producer are guaranteed visible here before the block is encoded.
+        if (tp->run.load(std::memory_order_acquire))
         {
             g_ASTCEncode.m_xdim = tp->xdim;
             g_ASTCEncode.m_ydim = tp->ydim;
@@ -359,7 +368,7 @@ unsigned int ASTCThreadProcEncode(void* param)
 
             tp->encoder->CompressBlock_kernel((ASTC_Encoder::astc_codec_image*)tp->input_image, tp->bp, tp->x, tp->y, tp->z, &g_ASTCEncode);
 
-            tp->run = FALSE;
+            tp->run.store(false, std::memory_order_release);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(0));
@@ -448,6 +457,35 @@ CodecError CCodec_ASTC::InitializeASTCLibrary()
 #endif
         }
 
+        // m_LibraryInitialized stays false on every path below, so the destructor will not tear
+        // the pool down: any worker already started still polls g_EncodeParameterStorage and
+        // calls through m_encoder, and destroying an unjoined std::thread calls std::terminate().
+        auto shutdownEncoderPool = [this]() {
+            for (int t = 0; t < m_LiveThreads; t++)
+                g_EncodeParameterStorage[t].exit.store(true, std::memory_order_release);
+
+            for (int t = 0; t < m_LiveThreads; t++)
+            {
+                std::thread& curThread = m_EncodingThreadHandle[t];
+                if (curThread.joinable())
+                    curThread.join();
+                curThread = std::thread();
+            }
+            m_LiveThreads = 0;
+
+            delete[] m_EncodingThreadHandle;
+            m_EncodingThreadHandle = NULL;
+
+            delete[] g_EncodeParameterStorage;
+            g_EncodeParameterStorage = NULL;
+
+            for (CMP_INT j = 0; j < m_NumEncodingThreads; j++)
+            {
+                delete m_encoder[j];
+                m_encoder[j] = NULL;
+            }
+        };
+
         // Create the encoding threads
         for (i = 0; i < m_NumEncodingThreads; i++)
         {
@@ -455,10 +493,20 @@ CodecError CCodec_ASTC::InitializeASTCLibrary()
             g_EncodeParameterStorage[i].encoder = m_encoder[i];
             // Inform the thread that at the moment it doesn't have any work to do
             // but that it should wait for some and not exit
-            g_EncodeParameterStorage[i].run  = FALSE;
-            g_EncodeParameterStorage[i].exit = FALSE;
+            g_EncodeParameterStorage[i].run.store(false, std::memory_order_relaxed);
+            g_EncodeParameterStorage[i].exit.store(false, std::memory_order_relaxed);
 
-            m_EncodingThreadHandle[i] = std::thread(ASTCThreadProcEncode, (void*)&g_EncodeParameterStorage[i]);
+            try
+            {
+                m_EncodingThreadHandle[i] = std::thread(ASTCThreadProcEncode, (void*)&g_EncodeParameterStorage[i]);
+            }
+            catch (const std::system_error&)
+            {
+                // Out of thread handles: without this the exception escapes with the workers
+                // started so far left spinning for the life of the process.
+                shutdownEncoderPool();
+                return CE_Unknown;
+            }
             m_LiveThreads++;
         }
 
@@ -467,11 +515,7 @@ CodecError CCodec_ASTC::InitializeASTCLibrary()
 
         if (!m_decoder)
         {
-            for (CMP_INT j = 0; j < m_NumEncodingThreads; j++)
-            {
-                delete m_encoder[j];
-                m_encoder[j] = NULL;
-            }
+            shutdownEncoderPool();
             return CE_Unknown;
         }
 
@@ -494,7 +538,7 @@ CodecError CCodec_ASTC::EncodeASTCBlock(astc_codec_image* input_image, uint8_t* 
             if (g_EncodeParameterStorage == NULL)
                 return CE_Unknown;
 
-            if (g_EncodeParameterStorage[threadIndex].run == FALSE)
+            if (!g_EncodeParameterStorage[threadIndex].run.load(std::memory_order_acquire))
             {
                 found = TRUE;
                 break;
@@ -519,7 +563,7 @@ CodecError CCodec_ASTC::EncodeASTCBlock(astc_codec_image* input_image, uint8_t* 
         g_EncodeParameterStorage[threadIndex].y           = y;
         g_EncodeParameterStorage[threadIndex].z           = z;
         // Tell the thread to start working
-        g_EncodeParameterStorage[threadIndex].run = TRUE;
+        g_EncodeParameterStorage[threadIndex].run.store(true, std::memory_order_release);
     }
     else
     {
@@ -551,7 +595,7 @@ CodecError CCodec_ASTC::FinishASTCEncoding(void)
         {
             // If a thread is in the running state then we need to wait for it to finish
             // its work from the producer
-            while (g_EncodeParameterStorage[i].run == TRUE)
+            while (g_EncodeParameterStorage[i].run.load(std::memory_order_acquire))
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }

@@ -36,8 +36,11 @@
 #include "pluginbase.h"
 #include "pluginmanager.h"
 
-#define TC_API_VERSION_MAJOR 1
-#define TC_API_VERSION_MINOR 4
+// Bump the major version whenever a class shared across the plugin DLL boundary
+// (e.g. CMP_Encoder) changes layout, so PluginManager rejects binaries built against the old
+// layout instead of silently misreading/corrupting fields at the wrong offset.
+#define TC_API_VERSION_MAJOR 2
+#define TC_API_VERSION_MINOR 0
 
 typedef CMP_DWORD_PTR TC_HANDLE;  ///< Generic Texture API handle
 typedef TC_HANDLE     HFILETYPE;  ///< Handle to a FileType.

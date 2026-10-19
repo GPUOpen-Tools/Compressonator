@@ -73,6 +73,15 @@ if (${VULKAN_MAJOR_VERSION} LESS_EQUAL 1 AND ${VULKAN_MINOR_VERSION} LESS_EQUAL 
     set(USE_OLD_VULKAN_LIBS ON)
 endif()
 
+# glslang merged the HLSL and OGLCompiler libraries into glslang.lib starting with
+# Vulkan SDK 1.3.280.0; older SDKs still ship them as separate import libraries.
+set(VULKAN_HAS_LEGACY_GLSLANG_LIBS ON)
+if (${VULKAN_MAJOR_VERSION} GREATER 1
+    OR (${VULKAN_MAJOR_VERSION} EQUAL 1 AND ${VULKAN_MINOR_VERSION} GREATER 3)
+    OR (${VULKAN_MAJOR_VERSION} EQUAL 1 AND ${VULKAN_MINOR_VERSION} EQUAL 3 AND ${VULKAN_PATCH_VERSION} GREATER_EQUAL 280))
+    set(VULKAN_HAS_LEGACY_GLSLANG_LIBS OFF)
+endif()
+
 if (CMP_HOST_APPLE)
 
     set(MOLTEN_VK_PATHS
@@ -139,20 +148,26 @@ elseif(CMP_HOST_WINDOWS)
 endif()
 
 target_link_libraries(ExtVulkan INTERFACE ${Vulkan_LIBRARIES})
-target_include_directories(ExtVulkan INTERFACE 
+target_include_directories(ExtVulkan INTERFACE
     ${Vulkan_INCLUDE_DIRS}
     ${Vulkan_INCLUDE_DIRS}/glslang
 )
 
 add_library(ExtGlslang INTERFACE)
 
-target_link_libraries(ExtGlslang INTERFACE  
+target_link_libraries(ExtGlslang INTERFACE
     ${VULKAN_SDK_PATH}/lib/glslang$<$<CONFIG:Debug>:d>.lib
     ${VULKAN_SDK_PATH}/lib/SPIRV$<$<CONFIG:Debug>:d>.lib
-    ${VULKAN_SDK_PATH}/lib/HLSL$<$<CONFIG:Debug>:d>.lib
     ${VULKAN_SDK_PATH}/lib/OSDependent$<$<CONFIG:Debug>:d>.lib
-    ${VULKAN_SDK_PATH}/lib/OGLCompiler$<$<CONFIG:Debug>:d>.lib
 )
+
+if (VULKAN_HAS_LEGACY_GLSLANG_LIBS)
+    # Removed in the glslang shipped with Vulkan SDK 1.3.280.0+ (merged into glslang.lib)
+    target_link_libraries(ExtGlslang INTERFACE
+        ${VULKAN_SDK_PATH}/lib/HLSL$<$<CONFIG:Debug>:d>.lib
+        ${VULKAN_SDK_PATH}/lib/OGLCompiler$<$<CONFIG:Debug>:d>.lib
+    )
+endif()
 
 if (DEFINED USE_OLD_VULKAN_LIBS)
     message("Old version of Vulkan detected, using older libraries")

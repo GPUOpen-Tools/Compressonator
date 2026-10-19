@@ -49,6 +49,7 @@
 //--------------------------------------------------------------------------------------
 
 #include "cdirectx.h"
+#include "cmp_fileio.h"
 #include "stdio.h"
 #include "minwindef.h"  // max,min
 #include <comdef.h>
@@ -560,8 +561,12 @@ HRESULT CDirectX::BuildBCnEncoder()
     bool    rebuild;
     FILE*   p_file_bin = NULL;
     errno_t fopen_result;
-    string  compiledShaderFile = m_sourceShaderFile;
-    compiledShaderFile.append(".cmp");
+
+    // Compiled shaders are cached under the user's application data folder: the
+    // install directory is read only for standard users.
+    auto shaderCacheFile = [this](const char* suffix) { return CMP_GetShaderCacheFilePath(m_sourceShaderFile, suffix); };
+
+    string compiledShaderFile = shaderCacheFile(".cmp");
 
     //-------------------------------
     // Load Compiled Compute Shaders
@@ -577,7 +582,7 @@ HRESULT CDirectX::BuildBCnEncoder()
     }
 
     // Check build configuration of the shader, has it been modified since last use
-    rebuild = cmp_recompile_shader(m_sourceShaderFile);
+    rebuild = cmp_recompile_shader(m_sourceShaderFile, compiledShaderFile);
 
     if (!rebuild)
     {
@@ -605,22 +610,20 @@ HRESULT CDirectX::BuildBCnEncoder()
         if (m_activeEncoder == ACTIVE_ENCODER_BC6)
         {
 #ifdef USE_ALL_BC6_MODES
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".0.cmp");
-            stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
-            sw    = stemp.c_str();
-            hr    = D3DReadFileToBlob(sw, &m_csBlobEx[0]);
+            compiledShaderFile = shaderCacheFile(".0.cmp");
+            stemp              = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
+            sw                 = stemp.c_str();
+            hr                 = D3DReadFileToBlob(sw, &m_csBlobEx[0]);
             if (FAILED(hr))
             {
                 csBlobCleanUp();
                 PrintDX("Failed reading shader binary %08X\n", hr);
                 return -1;
             }
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".1.cmp");
-            stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
-            sw    = stemp.c_str();
-            hr    = D3DReadFileToBlob(sw, &m_csBlobEx[1]);
+            compiledShaderFile = shaderCacheFile(".1.cmp");
+            stemp              = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
+            sw                 = stemp.c_str();
+            hr                 = D3DReadFileToBlob(sw, &m_csBlobEx[1]);
             if (FAILED(hr))
             {
                 csBlobCleanUp();
@@ -632,11 +635,10 @@ HRESULT CDirectX::BuildBCnEncoder()
 #ifdef USE_ALL_BC7_MODES
         else if (m_activeEncoder == ACTIVE_ENCODER_BC7)
         {
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".0.cmp");
-            stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
-            sw    = stemp.c_str();
-            hr    = D3DReadFileToBlob(sw, &m_csBlobEx[0]);
+            compiledShaderFile = shaderCacheFile(".0.cmp");
+            stemp              = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
+            sw                 = stemp.c_str();
+            hr                 = D3DReadFileToBlob(sw, &m_csBlobEx[0]);
             if (FAILED(hr))
             {
                 csBlobCleanUp();
@@ -644,11 +646,10 @@ HRESULT CDirectX::BuildBCnEncoder()
                 return -1;
             }
 
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".1.cmp");
-            stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
-            sw    = stemp.c_str();
-            hr    = D3DReadFileToBlob(sw, &m_csBlobEx[1]);
+            compiledShaderFile = shaderCacheFile(".1.cmp");
+            stemp              = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
+            sw                 = stemp.c_str();
+            hr                 = D3DReadFileToBlob(sw, &m_csBlobEx[1]);
             if (FAILED(hr))
             {
                 csBlobCleanUp();
@@ -656,11 +657,10 @@ HRESULT CDirectX::BuildBCnEncoder()
                 return -1;
             }
 
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".2.cmp");
-            stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
-            sw    = stemp.c_str();
-            hr    = D3DReadFileToBlob(sw, &m_csBlobEx[2]);
+            compiledShaderFile = shaderCacheFile(".2.cmp");
+            stemp              = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
+            sw                 = stemp.c_str();
+            hr                 = D3DReadFileToBlob(sw, &m_csBlobEx[2]);
             if (FAILED(hr))
             {
                 csBlobCleanUp();
@@ -752,8 +752,7 @@ HRESULT CDirectX::BuildBCnEncoder()
         if (m_activeEncoder == ACTIVE_ENCODER_BC6)
         {
 #ifdef USE_ALL_BC6_MODES
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".0.cmp");
+            compiledShaderFile = shaderCacheFile(".0.cmp");
 
             // Save the compiled version for use on future runs
             stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
@@ -767,8 +766,7 @@ HRESULT CDirectX::BuildBCnEncoder()
                 return -1;
             }
 
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".1.cmp");
+            compiledShaderFile = shaderCacheFile(".1.cmp");
             // Save the compiled version for use on future runs
             stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
             sw    = stemp.c_str();
@@ -785,8 +783,7 @@ HRESULT CDirectX::BuildBCnEncoder()
 #ifdef USE_ALL_BC7_MODES
         else if (m_activeEncoder == ACTIVE_ENCODER_BC7)
         {
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".0.cmp");
+            compiledShaderFile = shaderCacheFile(".0.cmp");
 
             // Save the compiled version for use on future runs
             stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
@@ -800,8 +797,7 @@ HRESULT CDirectX::BuildBCnEncoder()
                 return -1;
             }
 
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".1.cmp");
+            compiledShaderFile = shaderCacheFile(".1.cmp");
             // Save the compiled version for use on future runs
             stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
             sw    = stemp.c_str();
@@ -814,8 +810,7 @@ HRESULT CDirectX::BuildBCnEncoder()
                 return -1;
             }
 
-            compiledShaderFile = m_sourceShaderFile;
-            compiledShaderFile.append(".2.cmp");
+            compiledShaderFile = shaderCacheFile(".2.cmp");
             // Save the compiled version for use on future runs
             stemp = std::wstring(compiledShaderFile.begin(), compiledShaderFile.end());
             sw    = stemp.c_str();

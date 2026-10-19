@@ -26,7 +26,7 @@ endif()
 
 
 cmp_gui_copy_to_output(${PROJECT_SOURCE_DIR}/runtime/bc7_compression.cprj ${ASSETS_PATH}/projects/bc7_compression.cprj)
-cmp_gui_copy_to_output(${PROJECT_SOURCE_DIR}/runtime/bc6h_compression.cprj ${ASSETS_PATH}/Projects/bc6h_compression.cprj)
+cmp_gui_copy_to_output(${PROJECT_SOURCE_DIR}/runtime/bc6h_compression.cprj ${ASSETS_PATH}/projects/bc6h_compression.cprj)
 
 # Image sample assets
 file(GLOB_RECURSE RUNTIME_IMAGE_ASSETS  ${PROJECT_SOURCE_DIR}/runtime/images/*)

@@ -120,6 +120,56 @@ void DetermineTextureType(const DDSD2* pDDSD, MipSet* pMipSet)
     }
 }
 
+// Runs fnLoop over every face/slice/mip level. Ownership of 'extra' stays with the post-loop.
+static TC_PluginError GenericLoadLoops(FILE*& pFile, DDSD2*& pDDSD, MipSet*& pMipSet, void*& extra, LoopFunction fnLoop)
+{
+    CMP_DWORD      dwWidth, dwHeight;
+    TC_PluginError err;
+
+    if (pMipSet->m_dwFourCC)
+        return fnLoop(pFile, pDDSD, pMipSet, extra, 0, 0, pDDSD->dwWidth, pDDSD->dwHeight);
+
+    //pMipSet now allocated
+    if (pMipSet->m_TextureType == TT_2D || pMipSet->m_TextureType == TT_CubeMap)
+    {
+        for (int nFace = 0; nFace < pMipSet->m_nDepth; nFace++)
+        {
+            dwWidth  = pDDSD->dwWidth;
+            dwHeight = pDDSD->dwHeight;
+            for (int nMipLevel = 0; nMipLevel < pMipSet->m_nMipLevels; nMipLevel++)
+            {
+                err = fnLoop(pFile, pDDSD, pMipSet, extra, nMipLevel, nFace, dwWidth, dwHeight);
+                if (err != PE_OK)
+                    return err;
+                dwWidth  = (dwWidth > 1) ? (dwWidth >> 1) : 1;
+                dwHeight = (dwHeight > 1) ? (dwHeight >> 1) : 1;
+            }
+        }
+        return PE_OK;
+    }
+
+    if (pMipSet->m_TextureType == TT_VolumeTexture)
+    {
+        dwWidth  = pDDSD->dwWidth;
+        dwHeight = pDDSD->dwHeight;
+        for (int nMipLevel = 0; nMipLevel < pMipSet->m_nMipLevels; nMipLevel++)
+        {
+            int nMaxSlices = CMP_MaxFacesOrSlices(pMipSet, nMipLevel);
+            for (int nSlice = 0; nSlice < nMaxSlices; nSlice++)
+            {
+                err = fnLoop(pFile, pDDSD, pMipSet, extra, nMipLevel, nSlice, dwWidth, dwHeight);
+                if (err != PE_OK)
+                    return err;
+            }
+            dwWidth  = dwWidth > 1 ? dwWidth >> 1 : 1;
+            dwHeight = dwHeight > 1 ? dwHeight >> 1 : 1;
+        }
+        return PE_OK;
+    }
+
+    return PE_Unknown;
+}
+
 TC_PluginError GenericLoadFunction(FILE*&           pFile,
                                    DDSD2*&          pDDSD,
                                    MipSet*&         pMipSet,
@@ -130,13 +180,17 @@ TC_PluginError GenericLoadFunction(FILE*&           pFile,
                                    LoopFunction     fnLoop,
                                    PostLoopFunction fnPostLoop)
 {
-    CMP_DWORD      dwWidth, dwHeight;
     TC_PluginError err;
 
     DetermineTextureType(pDDSD, pMipSet);
 
+    // 'extra' may already hold a caller-allocated context, so the post-loop owns it from the
+    // first statement onwards and must run on every exit path below.
     if (!DDS_CMips->AllocateMipSet(pMipSet, channelFormat, textureDataType, pMipSet->m_TextureType, pDDSD->dwWidth, pDDSD->dwHeight, pMipSet->m_nDepth))
+    {
+        fnPostLoop(pFile, pDDSD, pMipSet, extra);
         return PE_Unknown;
+    }
 
     pMipSet->m_nMipLevels = pDDSD->dwMipMapCount;
 
@@ -147,53 +201,16 @@ TC_PluginError GenericLoadFunction(FILE*&           pFile,
 
     err = fnPreLoop(pFile, pDDSD, pMipSet, extra);
     if (err != PE_OK)
-        return err;
-
-    if (pMipSet->m_dwFourCC)
-        return fnLoop(pFile, pDDSD, pMipSet, extra, 0, 0, pDDSD->dwWidth, pDDSD->dwHeight);
-    else
     {
-        //pMipSet now allocated
-        if (pMipSet->m_TextureType == TT_2D || pMipSet->m_TextureType == TT_CubeMap)
-        {
-            for (int nFace = 0; nFace < pMipSet->m_nDepth; nFace++)
-            {
-                dwWidth  = pDDSD->dwWidth;
-                dwHeight = pDDSD->dwHeight;
-                for (int nMipLevel = 0; nMipLevel < pMipSet->m_nMipLevels; nMipLevel++)
-                {
-                    err = fnLoop(pFile, pDDSD, pMipSet, extra, nMipLevel, nFace, dwWidth, dwHeight);
-                    if (err != PE_OK)
-                        return err;
-                    dwWidth  = (dwWidth > 1) ? (dwWidth >> 1) : 1;
-                    dwHeight = (dwHeight > 1) ? (dwHeight >> 1) : 1;
-                }
-            }
-        }
-        else if (pMipSet->m_TextureType == TT_VolumeTexture)
-        {
-            dwWidth  = pDDSD->dwWidth;
-            dwHeight = pDDSD->dwHeight;
-            for (int nMipLevel = 0; nMipLevel < pMipSet->m_nMipLevels; nMipLevel++)
-            {
-                int nMaxSlices = CMP_MaxFacesOrSlices(pMipSet, nMipLevel);
-                for (int nSlice = 0; nSlice < nMaxSlices; nSlice++)
-                {
-                    err = fnLoop(pFile, pDDSD, pMipSet, extra, nMipLevel, nSlice, dwWidth, dwHeight);
-                    if (err != PE_OK)
-                        return err;
-                }
-                dwWidth  = dwWidth > 1 ? dwWidth >> 1 : 1;
-                dwHeight = dwHeight > 1 ? dwHeight >> 1 : 1;
-            }
-        }
-        else
-        {
-            assert(0);
-            return PE_Unknown;
-        }
+        fnPostLoop(pFile, pDDSD, pMipSet, extra);
+        return err;
     }
-    return fnPostLoop(pFile, pDDSD, pMipSet, extra);
+
+    err = GenericLoadLoops(pFile, pDDSD, pMipSet, extra, fnLoop);
+
+    TC_PluginError postErr = fnPostLoop(pFile, pDDSD, pMipSet, extra);
+
+    return (err != PE_OK) ? err : postErr;
 }
 
 TC_PluginError PreLoopDefault(FILE*&, DDSD2*&, MipSet*&, void*&)
@@ -317,8 +334,14 @@ TC_PluginError PostLoopFourCC(FILE*&, DDSD2*&, MipSet*&, void*&)
 
 TC_PluginError PreLoopRGB565(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*& extra)
 {
+    extra                = nullptr;
     pMipSet->m_dwFourCC  = 0;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 2-bytes-per-pixel buffer size would wrap CMP_DWORD
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > (dwMax / 2) / pDDSD->dwWidth)
+        return PE_Unknown;
 
     // Allocate a temporary buffer and read the bitmap data into it
     CMP_DWORD dwTempSize = pDDSD->dwWidth * pDDSD->dwHeight * 2;
@@ -328,17 +351,16 @@ TC_PluginError PreLoopRGB565(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*& ext
 
 TC_PluginError LoopRGB565(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& extra, int nMipLevel, int nFaceOrSlice, CMP_DWORD dwWidth, CMP_DWORD dwHeight)
 {
+    // 'extra' is owned by PostLoopRGB565, which runs even when this loop fails: do not free it here.
     // Allocate the permanent buffer and unpack the bitmap data into it
     MipLevel* pMipLevel = DDS_CMips->GetMipLevel(pMipSet, nMipLevel, nFaceOrSlice);
-    if (!DDS_CMips->AllocateMipLevelData(pMipLevel, dwWidth, dwHeight, CF_8bit, TDT_XRGB))
+    if (!pMipLevel || !DDS_CMips->AllocateMipLevelData(pMipLevel, dwWidth, dwHeight, CF_8bit, TDT_XRGB))
     {
-        free(extra);
         return PE_Unknown;
     }
 
     if (fread(extra, pMipLevel->m_dwLinearSize / 2, 1, pFile) != 1)
     {
-        free(extra);
         return PE_Unknown;
     }
 
@@ -360,13 +382,20 @@ TC_PluginError LoopRGB565(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& extra,
 TC_PluginError PostLoopRGB565(FILE*&, DDSD2*&, MipSet*&, void*& extra)
 {
     free(extra);
+    extra = nullptr;
     return PE_OK;
 }
 
 TC_PluginError PreLoopRGB888(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*& extra)
 {
+    extra                = nullptr;
     pMipSet->m_dwFourCC  = 0;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 3-bytes-per-pixel buffer size would wrap CMP_DWORD
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > (dwMax / 3) / pDDSD->dwWidth)
+        return PE_Unknown;
 
     // Allocate a temporary buffer and read the bitmap data into it
     CMP_DWORD dwTempSize = pDDSD->dwWidth * pDDSD->dwHeight * 3;
@@ -376,9 +405,9 @@ TC_PluginError PreLoopRGB888(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*& ext
 
 TC_PluginError LoopRGB888(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& extra, int nMipLevel, int nFaceOrSlice, CMP_DWORD dwWidth, CMP_DWORD dwHeight)
 {
+    // 'extra' is owned by PostLoopRGB888, which runs even when this loop fails: do not free it here.
     if (fread(extra, dwWidth * dwHeight * 3, 1, pFile) != 1)
     {
-        free(extra);
         return PE_Unknown;
     }
     MipLevel* pMipLevel = DDS_CMips->GetMipLevel(pMipSet, nMipLevel, nFaceOrSlice);
@@ -386,13 +415,11 @@ TC_PluginError LoopRGB888(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& extra,
     // Allocate the permanent buffer and unpack the bitmap data into it
     if (!pMipLevel)
     {
-        free(extra);
         return PE_Unknown;
     }
 
     if (!DDS_CMips->AllocateMipLevelData(pMipLevel, dwWidth, dwHeight, CF_8bit, TDT_XRGB))
     {
-        free(extra);
         return PE_Unknown;
     }
 
@@ -413,6 +440,7 @@ TC_PluginError LoopRGB888(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& extra,
 TC_PluginError PostLoopRGB888(FILE*&, DDSD2*&, MipSet*&, void*& extra)
 {
     free(extra);
+    extra = nullptr;
     return PE_OK;
 }
 
@@ -513,8 +541,16 @@ TC_PluginError LoopRGB8888_S(FILE*& pFile, DDSD2*&, MipSet*& pMipSet, void*& ext
     return PE_OK;
 }
 
-TC_PluginError PostLoopRGB8888(FILE*&, DDSD2*&, MipSet*&, void*&)
+TC_PluginError PostLoopRGB8888(FILE*&, DDSD2*&, MipSet*&, void*& extra)
 {
+    if (extra)
+    {
+        ARGB8888Struct* pStruct = reinterpret_cast<ARGB8888Struct*>(extra);
+        free(pStruct->pMemory);  // free temporary pixel buffer before releasing struct
+        pStruct->pMemory = nullptr;
+        free(pStruct);
+        extra = nullptr;
+    }
     return PE_OK;
 }
 
@@ -684,10 +720,17 @@ TC_PluginError PostLoopABGR16F(FILE*&, DDSD2*&, MipSet*&, void*&)
     return PE_OK;
 }
 
-TC_PluginError PreLoopG8(FILE*&, DDSD2*&, MipSet*& pMipSet, void*&)
+TC_PluginError PreLoopG8(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*&)
 {
     pMipSet->m_dwFourCC  = CMP_FOURCC_G8;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 1-bytes-per-pixel buffer size would wrap CMP_DWORD. LoopG8 sizes its allocation as dwWidth * dwHeight. These loaders report CF_Compressed,
+    // so the mip-level size check in CMP_ProcessTexture is skipped and a wrapped size reaches the encoder.
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > dwMax / pDDSD->dwWidth)
+        return PE_Unknown;
+
     return PE_OK;
 }
 
@@ -711,10 +754,16 @@ TC_PluginError PostLoopG8(FILE*&, DDSD2*&, MipSet*&, void*&)
     return PE_OK;
 }
 
-TC_PluginError PreLoopAG8(FILE*&, DDSD2*&, MipSet*& pMipSet, void*&)
+TC_PluginError PreLoopAG8(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*&)
 {
     pMipSet->m_dwFourCC  = CMP_FOURCC_AG8;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 2-bytes-per-pixel buffer size would wrap CMP_DWORD in LoopAG8.
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > (dwMax / 2) / pDDSD->dwWidth)
+        return PE_Unknown;
+
     return PE_OK;
 }
 
@@ -738,10 +787,16 @@ TC_PluginError PostLoopAG8(FILE*&, DDSD2*&, MipSet*&, void*&)
     return PE_OK;
 }
 
-TC_PluginError PreLoopG16(FILE*&, DDSD2*&, MipSet*& pMipSet, void*&)
+TC_PluginError PreLoopG16(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*&)
 {
     pMipSet->m_dwFourCC  = CMP_FOURCC_G16;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 2-bytes-per-pixel buffer size would wrap CMP_DWORD in LoopG16.
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > (dwMax / 2) / pDDSD->dwWidth)
+        return PE_Unknown;
+
     return PE_OK;
 }
 
@@ -765,10 +820,16 @@ TC_PluginError PostLoopG16(FILE*&, DDSD2*&, MipSet*&, void*&)
     return PE_OK;
 }
 
-TC_PluginError PreLoopA8(FILE*&, DDSD2*&, MipSet*& pMipSet, void*&)
+TC_PluginError PreLoopA8(FILE*&, DDSD2*& pDDSD, MipSet*& pMipSet, void*&)
 {
     pMipSet->m_dwFourCC  = CMP_FOURCC_A8;
     pMipSet->m_dwFourCC2 = 0;
+
+    // Reject dimensions whose 1-byte-per-pixel buffer size would wrap CMP_DWORD in LoopA8.
+    const CMP_DWORD dwMax = (std::numeric_limits<CMP_DWORD>::max)();
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwHeight > dwMax / pDDSD->dwWidth)
+        return PE_Unknown;
+
     return PE_OK;
 }
 

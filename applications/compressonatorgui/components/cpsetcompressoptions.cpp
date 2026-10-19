@@ -22,6 +22,7 @@
 //=====================================================================
 #include "cpsetcompressoptions.h"
 #include "cpmaincomponents.h"
+#include "cmp_fileio.h"
 
 #include "qtbuttonpropertybrowser.h"
 #include "qteditorfactory.h"
@@ -1635,6 +1636,15 @@ bool CSetCompressOptions::updateDisplayContent()
                 DestFolder.append("/");
         }
 
+        // Sample content installs under %ProgramFiles%, which is read only for standard
+        // users: default those results to the per user application data folder.
+        if (!CMP_IsDirWritable(dir.absolutePath().toStdString()))
+        {
+            QString userResultsPath = CMP_GetUserResultsFolder();
+            if (!userResultsPath.isEmpty())
+                DestFolder = userResultsPath + "/";
+        }
+
         m_DestinationFolder->setText(DestFolder);
         m_isInit = true;
     }
@@ -1840,7 +1850,9 @@ void CSetCompressOptions::SaveCompressedInfo()
     // Determine if destination folder exists if not try to create
     if (!CMP_DirExists(finalPath.toStdString().c_str()))
     {
-        if (CMP_CreateDir(finalPath.toStdString().c_str()))
+        // CMP_CreateDirTree(), not CMP_CreateDir(): a user can type or paste a destination
+        // several levels below an existing folder, and the single-level helper fails there.
+        if (CMP_CreateDirTree(finalPath.toStdString()))
         {
             // check and wait for system to generate a valid dir,
             // typically this should not happen on local a dir
@@ -1855,37 +1867,33 @@ void CSetCompressOptions::SaveCompressedInfo()
         }
     }
 
+    // Probe the folder rather than the target file: opening the file to test for write
+    // access would truncate a result that has not been regenerated yet.
+    if (!CMP_IsDirWritable(finalPath.toStdString()))
+    {
+        QString userResultsPath = CMP_GetUserResultsFolder();
+        if (!userResultsPath.isEmpty())
+        {
+            finalPath = userResultsPath;
+
+            cpMainComponents* temp = (cpMainComponents*)(m_parent);
+            if (temp)
+            {
+                if (temp->m_CompressStatusDialog)
+                {
+                    temp->m_CompressStatusDialog->onClearText();
+                    temp->m_CompressStatusDialog->showOutput();
+                }
+            }
+            PrintInfo("Warning: Destination path is not writable, the path has been changed to %s\n", finalPath.toStdString().c_str());
+        }
+        else
+            PrintInfo("Warning: Destination path %s is not writable\n", finalPath.toStdString().c_str());
+    }
+
     // Path+FileName
     finalPath.append("/");
     finalPath.append(m_DestinationData.m_compname);
-    QFile file;
-    file.setFileName(finalPath);
-    bool isWritable = file.open(QIODevice::WriteOnly);
-
-    if (!isWritable)
-    {
-        QString   appLocalPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-        QFileInfo fileInfo2(appLocalPath);
-        finalPath = fileInfo2.dir().path();
-        // Path+FileName
-        finalPath.append("/");
-        finalPath.append(m_DestinationData.m_compname);
-        QFileInfo fileInfo(finalPath);
-
-        cpMainComponents* temp = (cpMainComponents*)(m_parent);
-        if (temp)
-        {
-            if (temp->m_CompressStatusDialog)
-            {
-                temp->m_CompressStatusDialog->onClearText();
-                temp->m_CompressStatusDialog->showOutput();
-            }
-        }
-        PrintInfo("Warning: Destination path is not writable, the path has been changed to app local path.\n");
-    }
-
-    file.close();
-    file.remove();
 
     if (m_DestinationData.m_SourceType == TREETYPE_3DMODEL_DATA)
     {

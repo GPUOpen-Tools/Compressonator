@@ -28,6 +28,7 @@
 #ifndef _CODEC_APC_H_INCLUDED_
 #define _CODEC_APC_H_INCLUDED_
 
+#include <atomic>
 #include <thread>
 
 #include "apc_encode.h"
@@ -40,10 +41,12 @@ struct APCEncodeThreadParam
 {
     APCBlockEncoder* encoder;
     // Max storage buffer for blocks size = 8x8x4
-    CMP_BYTE          in[256];
-    CMP_BYTE*         out;
-    volatile CMP_BOOL run;
-    volatile CMP_BOOL exit;
+    CMP_BYTE  in[256];
+    CMP_BYTE* out;
+    // Atomics, not volatile: these are the synchronisation between the producer and the worker,
+    // and volatile provides no inter-thread ordering or visibility guarantees.
+    std::atomic<bool> run;
+    std::atomic<bool> exit;
 };
 
 class CCodec_APC : public CCodec_DXTC

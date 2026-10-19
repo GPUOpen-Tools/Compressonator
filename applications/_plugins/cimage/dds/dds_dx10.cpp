@@ -29,6 +29,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <assert.h>
 
 #ifdef _WIN32
@@ -262,31 +263,31 @@ TC_PluginError LoadDDS_DX10(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
 TC_PluginError LoadDDS_DX10_RGBA_32F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float32, TDT_ARGB, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
 }
 
 TC_PluginError LoadDDS_DX10_RGBA32(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_32bit, TDT_ARGB, PreLoopABGR32F, LoopABGR32F, PostLoopABGR32F);
 }
 
 TC_PluginError LoadDDS_DX10_RGBA_16F(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_ARGB, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
 }
 
 TC_PluginError LoadDDS_DX10_RGBA16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Float16, TDT_ARGB, PreLoopABGR16F, LoopABGR16F, PostLoopABGR16F);
 }
 
 TC_PluginError LoadDDS_DX10_RG32(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_32bit, TDT_XRGB, PreLoopABGR32, LoopR32G32, PreLoopABGR32);
 }
 
@@ -319,10 +320,23 @@ TC_PluginError LoadDDS_DX10_R11G11B10F(FILE* /*pFile*/, DDSD2* /*pDDSD*/, MipSet
 TC_PluginError LoadDDS_DX10_R8G8B8A8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
     ARGB8888Struct* pARGB8888Struct = (ARGB8888Struct*)calloc(sizeof(ARGB8888Struct), 1);
-    void*           extra           = pARGB8888Struct;
+    if (!pARGB8888Struct)
+        return PE_Unknown;
+    void* extra = pARGB8888Struct;
 
     pARGB8888Struct->nFlags |= EF_UseBitMasks;
-    pARGB8888Struct->pMemory = malloc(4 * pDDSD->dwWidth * pDDSD->dwHeight);
+    // prevent integer overflow in temporary pixel buffer size calculation
+    if (pDDSD->dwWidth == 0 || pDDSD->dwHeight == 0 || pDDSD->dwWidth > UINT32_MAX / 4 / pDDSD->dwHeight)
+    {
+        free(pARGB8888Struct);
+        return PE_Unknown;
+    }
+    pARGB8888Struct->pMemory = malloc((size_t)4 * pDDSD->dwWidth * pDDSD->dwHeight);
+    if (!pARGB8888Struct->pMemory)
+    {
+        free(pARGB8888Struct);
+        return PE_Unknown;
+    }
     pARGB8888Struct->nRMask  = 0x000000ff;
     pARGB8888Struct->nGMask  = 0x0000ff00;
     pARGB8888Struct->nBMask  = 0x00ff0000;
@@ -332,42 +346,44 @@ TC_PluginError LoadDDS_DX10_R8G8B8A8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 
     pMipSet->m_TextureDataType = TDT_ARGB;
 
-    return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, pMipSet->m_TextureDataType, PreLoopRGB8888, LoopRGB8888, PostLoopRGB8888);
+    TC_PluginError err = GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, pMipSet->m_TextureDataType, PreLoopRGB8888, LoopRGB8888, PostLoopRGB8888);
+    // pFile is closed by the LoadDDS_DX10() dispatcher.
+    return err;
 }
 
 TC_PluginError LoadDDS_DX10_R16G16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_XRGB, PreLoopABGR16, LoopR16G16, PreLoopABGR16);
 }
 
 TC_PluginError LoadDDS_DX10_R8G8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB8888, LoopR8G8, PreLoopRGB8888);
 }
 
 TC_PluginError LoadDDS_DX10_R32(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_32bit, TDT_XRGB, PreLoopABGR32, LoopR32, PostLoopABGR32);
 }
 
 TC_PluginError LoadDDS_DX10_R16(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_16bit, TDT_XRGB, PreLoopABGR16, LoopR16, PostLoopABGR16);
 }
 
 TC_PluginError LoadDDS_DX10_R8(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_8bit, TDT_XRGB, PreLoopRGB8888, LoopR8, PreLoopRGB8888);
 }
 
 TC_PluginError LoadDDS_DX10_FourCC(FILE* pFile, DDSD2* pDDSD, MipSet* pMipSet, CMP_DWORD /*dwFourCC*/)
 {
-    void* extra;
+    void* extra = NULL;
     return GenericLoadFunction(pFile, pDDSD, pMipSet, extra, CF_Compressed, TDT_XRGB, PreLoopFourCC, LoopFourCC, PostLoopFourCC);
 }
 

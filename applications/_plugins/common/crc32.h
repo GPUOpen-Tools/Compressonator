@@ -75,7 +75,7 @@ private:
     void InitCRC32Table()
     {
         // 256 values representing ASCII character codes.
-        for (int i = 0; i <= CRC32TableSize; i++)
+        for (int i = 0; i < (int)CRC32TableSize; i++)
         {
             m_crc32Table[i] = Reflect(i, 8) << 24;
 

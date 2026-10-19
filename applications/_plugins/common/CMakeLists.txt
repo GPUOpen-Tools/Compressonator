@@ -44,6 +44,7 @@ list(APPEND PLUGIN_COMMON_H
     plugininterface.h
     pluginmanager.h
     cpu_timing.h
+    scoped_temp_files.h
     ssim.h
     tc_pluginapi.h
     tc_plugininternal.h
@@ -91,6 +92,11 @@ target_include_directories(CMP_Common PRIVATE
 
 if (OPTION_CMP_QT)
     target_link_libraries(CMP_Common Qt5::Widgets)
+endif()
+
+# cmp_fileio.cpp uses token/security descriptor APIs
+if (WIN32)
+    target_link_libraries(CMP_Common advapi32)
 endif()
 
 if (OPTION_BUILD_BROTLIG)

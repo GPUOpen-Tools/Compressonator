@@ -36,4 +36,9 @@ if (UNIX)
     target_compile_definitions(Image_EXR PRIVATE _LINUX)
 endif()
 
+# cmp_fileio.cpp uses token/security descriptor APIs
+if (WIN32)
+    target_link_libraries(Image_EXR PUBLIC advapi32)
+endif()
+
 set_target_properties(Image_EXR PROPERTIES FOLDER ${PROJECT_FOLDER_SDK_PLUGIN_STATIC})

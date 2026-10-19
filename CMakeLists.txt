@@ -19,13 +19,32 @@ if(POLICY CMP0076)
 endif()
 
 # Setting version information
+#
+# The single source of truth is cmp_compressonatorlib/version.h, which the release
+# scripts also parse (see scripts/get_version.py). Hardcoding the defaults here let
+# them drift: CMP_VERSION_MINOR stayed at 5 after version.h moved to 4.6, so every
+# CPack package produced by a plain `cmake ..` was stamped 4.5.
 
-if (NOT CMP_VERSION_MAJOR)
-    set(CMP_VERSION_MAJOR 4)
-endif()
+# A version component of 0 is legitimate (a 5.0 release), and CMake treats the string "0" as
+# false, so every test below compares against the empty string instead of using truthiness.
+if ("${CMP_VERSION_MAJOR}" STREQUAL "" OR "${CMP_VERSION_MINOR}" STREQUAL "")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/cmp_compressonatorlib/version.h" _cmp_version_header)
+    string(REGEX MATCH "#define[ \t]+VERSION_MAJOR_MAJOR[ \t]+([0-9]+)" _cmp_match "${_cmp_version_header}")
+    set(_cmp_header_major "${CMAKE_MATCH_1}")
+    string(REGEX MATCH "#define[ \t]+VERSION_MAJOR_MINOR[ \t]+([0-9]+)" _cmp_match "${_cmp_version_header}")
+    set(_cmp_header_minor "${CMAKE_MATCH_1}")
 
-if (NOT CMP_VERSION_MINOR)
-    set(CMP_VERSION_MINOR 5)
+    if ("${_cmp_header_major}" STREQUAL "" OR "${_cmp_header_minor}" STREQUAL "")
+        message(FATAL_ERROR "Could not parse VERSION_MAJOR_MAJOR/VERSION_MAJOR_MINOR from cmp_compressonatorlib/version.h")
+    endif()
+
+    if ("${CMP_VERSION_MAJOR}" STREQUAL "")
+        set(CMP_VERSION_MAJOR ${_cmp_header_major})
+    endif()
+
+    if ("${CMP_VERSION_MINOR}" STREQUAL "")
+        set(CMP_VERSION_MINOR ${_cmp_header_minor})
+    endif()
 endif()
 
 if (NOT CMP_VERSION_BUILD_NUMBER)
@@ -109,6 +128,15 @@ option(OPTION_BUILD_APPS_CMP_GUI          "Build Compressonator GUI"        OFF)
 option(OPTION_BUILD_APPS_CMP_UNITTESTS    "Build Compressontor UnitTests"   OFF)
 option(OPTION_BUILD_APPS_CMP_EXAMPLES     "Build Compressontor Examples"    OFF)
 
+# A local build links unsigned dependency DLLs (Qt, OpenCV, glew, dxc), which the startup
+# integrity check rejects, so the CLI/GUI exit before doing any work. Turn this OFF to get a
+# runnable unsigned test build; release builds must leave it ON.
+option(OPTION_CMP_DLL_SECURITY_CHECK "Enforce the startup DLL signature check in the CLI and GUI" ON)
+
+if(WIN32 AND NOT OPTION_CMP_DLL_SECURITY_CHECK)
+    message(WARNING "OPTION_CMP_DLL_SECURITY_CHECK is OFF: this build does not verify DLL signatures at startup and must not be released.")
+endif()
+
 #--------------------------------------------------------------------------
 # Enable or Disable Specific Build Apps
 #--------------------------------------------------------------------------
@@ -143,6 +171,17 @@ elseif (OPTION_BUILD_CMP_SDK)
     set(LIB_BUILD_COMMON                ON)
     set(LIB_BUILD_CORE                  ON)
     set(LIB_BUILD_GPUDECODE             ON)
+elseif (OPTION_BUILD_APPS_CMP_UNITTESTS)
+    # cmp_unittests links CMP_Compressonator, CMP_Framework, CMP_Core and the TGA image
+    # plugin (tga_rle_security_tests.cpp drives the loader through CMP_LoadTexture), so a
+    # unit-test-only configure has to build those libraries as well.
+    set(LIB_BUILD_COMPRESSONATOR_SDK    ON)
+    set(LIB_BUILD_FRAMEWORK_SDK         ON)
+    set(LIB_BUILD_IMAGEIO               ON)
+    set(LIB_BUILD_ANALYSIS              OFF)
+    set(LIB_BUILD_COMMON                ON)
+    set(LIB_BUILD_CORE                  ON)
+    set(LIB_BUILD_GPUDECODE             OFF)
 endif()
 
 if (OPTION_BUILD_APPS_CMP_VISION)
@@ -468,6 +507,10 @@ if (CMP_HOST_WINDOWS)
     # Unit tests
     if (OPTION_BUILD_APPS_CMP_UNITTESTS)
         message("Build cmp unittests setup")
+        # cmp_unittests links CMP_Math, which is otherwise only added for the GUI.
+        if (NOT TARGET CMP_Math)
+            add_subdirectory(applications/_libs/cmp_math)
+        endif()
         add_subdirectory(cmp_unittests)
     endif()
 
@@ -486,7 +529,19 @@ endif()
 # Installation
 
 install(DIRECTORY docs/build/html DESTINATION documents/)
-install(DIRECTORY runtime/images DESTINATION ".")
+
+# Installed samples are read-only for group/world. GUI/CLI apps probe writability
+# (CMP_IsDirWritable) and redirect projects/results to a per-user app-data directory when this
+# tree isn't writable, so a shared world-writable install is not needed and would let any local
+# user replace sample inputs or pre-place a symlink to overwrite an arbitrary writable target.
+set(CMP_SAMPLE_DIR_PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE)
+set(CMP_SAMPLE_FILE_PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+install(DIRECTORY runtime/images DESTINATION "share/compressonator"
+        DIRECTORY_PERMISSIONS ${CMP_SAMPLE_DIR_PERMISSIONS}
+        FILE_PERMISSIONS ${CMP_SAMPLE_FILE_PERMISSIONS})
+install(DIRECTORY DESTINATION "share/compressonator/projects" DIRECTORY_PERMISSIONS ${CMP_SAMPLE_DIR_PERMISSIONS})
+install(FILES runtime/bc7_compression.cprj runtime/bc6h_compression.cprj DESTINATION "share/compressonator/projects"
+        PERMISSIONS ${CMP_SAMPLE_FILE_PERMISSIONS})
 install(FILES license/license.txt DESTINATION "license/")
 install(FILES runtime/qt.conf DESTINATION ".")
 

@@ -135,13 +135,13 @@ downloadMappingWin = {
 }
 
 downloadMappingLin = {
-    "http://download.savannah.nongnu.org/releases/openexr/ilmbase-2.2.0.tar.gz": cmpCommonZip+"openexr2/ilmbase",
-    "http://download.savannah.nongnu.org/releases/openexr/openexr-2.2.0.tar.gz": cmpCommonZip+"openexr2/openexr",
+    # OpenEXR is provided by the system package (libopenexr-dev) on Linux and
+    # referenced from /usr/include; the upstream savannah tarballs are unused.
 }
 
 downloadMappingUni = {
-    "http://download.savannah.nongnu.org/releases/openexr/ilmbase-2.2.0.tar.gz": cmpCommonZip+"openexr2/ilmbase",
-    "http://download.savannah.nongnu.org/releases/openexr/openexr-2.2.0.tar.gz": cmpCommonZip+"openexr2/openexr",
+    # OpenEXR is provided by the system package on Unix/macOS and referenced
+    # from /usr/include; the upstream savannah tarballs are unused.
 }
 
 userAgentWin = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/42.0.2311.135 Safari/537.36 Edge/12.246"

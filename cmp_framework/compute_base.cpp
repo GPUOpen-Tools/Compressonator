@@ -32,12 +32,20 @@
 #include "cmp_core.h"
 #include "atiformats.h"
 #include "bcn_common_kernel.h"
+#include "cmp_fileio.h"
 
 #ifndef _WIN32
 #include <unistd.h> /* For open(), creat() */
 #endif
 
 #define STB_IMAGE_STATIC
+// This TU's copy of stb must not decode TGA, so that CMP_LoadTexture's generic stb fallback can
+// never handle a .tga: only the dedicated bounds-checked TGA plugin may. STBI_NO_TGA is only
+// honoured by the first inclusion, so fail the build if something included stb_image.h earlier.
+#ifdef STBI_INCLUDE_STB_IMAGE_H
+#error "stb_image.h was included before compute_base.cpp could disable its TGA decoder (STBI_NO_TGA)"
+#endif
+#define STBI_NO_TGA
 #ifndef STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_IMPLEMENTATION
 #endif
@@ -49,14 +57,44 @@
 #endif
 #include "stb_image_write.h"
 
+#include <map>
 #include <string>
 #include <mutex>
 
-CMP_CHAR*                GetFormatDesc(CMP_FORMAT nFormat);
-PluginManager            g_pluginManager;
+CMP_CHAR*     GetFormatDesc(CMP_FORMAT nFormat);
+PluginManager g_pluginManager;
+// Marks the sole process-lifetime PluginManager instance so its destructor (and only its
+// destructor) is allowed to toggle PluginDetails::s_inProcessTeardown - see the comment on
+// PluginManager::markAsProcessGlobalInstance().
+namespace
+{
+struct MarkGlobalPluginManager
+{
+    MarkGlobalPluginManager()
+    {
+        g_pluginManager.markAsProcessGlobalInstance();
+    }
+} g_markGlobalPluginManager;
+}  // namespace
 PluginInterface_Encoder* plugin_encoder_codec  = NULL;
 static CMP_BOOL          HostPluginsRegistered = FALSE;
 static CMP_FORMAT        cmp_format_hold       = CMP_FORMAT_Unknown;
+
+// KernelOptions::srcfile is a raw char* the caller may keep, so the resolved paths are
+// cached in a container with stable element addresses and never erased.
+static std::map<std::string, std::string> g_resolvedShaderPaths;
+static std::mutex                         g_resolvedShaderPathsMutex;
+
+static const char* CMP_GetCachedInstallPath(const char* relativePath)
+{
+    std::lock_guard<std::mutex> lock(g_resolvedShaderPathsMutex);
+
+    std::map<std::string, std::string>::iterator it = g_resolvedShaderPaths.find(relativePath);
+    if (it == g_resolvedShaderPaths.end())
+        it = g_resolvedShaderPaths.insert(std::make_pair(std::string(relativePath), CMP_ResolveInstallPath(relativePath))).first;
+
+    return it->second.c_str();
+}
 
 PluginInterface_Pipeline* g_ComputeBase = NULL;
 static CMP_Compute_type   ComputeType   = CMP_CPU;
@@ -165,36 +203,12 @@ const CMP_CHAR* GetEncodeWithDesc(CMP_Compute_type nFormat)
     return "CPU";
 }
 
-#ifdef _WIN32
-bool cmp_recompile_shader(std::string m_sourceShaderFile)
+// Staleness is derived from file timestamps only. The shipped shader sources live in
+// the install directory and must never be written to.
+bool cmp_recompile_shader(const std::string& sourceShaderFile, const std::string& compiledShaderFile)
 {
-    bool    rebuild    = false;
-    FILE*   p_file_bin = NULL;
-    errno_t fopen_result;
-    // Check build configuration of the shader, has it been modified since last use
-    fopen_result = fopen_s(&p_file_bin, m_sourceShaderFile.c_str(), "r+");
-    if (fopen_result == 0)
-    {
-        time_t attr;
-        fseek(p_file_bin, 3, SEEK_CUR);
-        fscanf_s(p_file_bin, "%llx", &attr);
-        struct stat attrib;
-        stat(m_sourceShaderFile.c_str(), &attrib);
-        if (attr != attrib.st_ctime)
-        {
-            char buff[128];
-            sprintf_s(buff, " %llx ", attrib.st_ctime);
-            // snprintf(buff, 128, " %llx ", attrib.st_ctime);
-            fseek(p_file_bin, 2, SEEK_SET);
-            fwrite(buff, 1, 9, p_file_bin);
-            rebuild = true;
-        }
-        fseek(p_file_bin, 0, SEEK_SET);
-        fclose(p_file_bin);
-    }
-    return rebuild;
+    return CMP_ShaderCacheIsStale(sourceShaderFile, compiledShaderFile);
 }
-#endif
 
 //-------------------------
 // Application is "Exiting"
@@ -271,11 +285,24 @@ CMP_ERROR CMP_API CMP_CreateComputeLibrary(MipSet* srcTexture, KernelOptions* ke
 
     if (kernel_options->srcfile == NULL)
     {
-        kernel_options->srcfile = plugin_encoder_codec->TC_ComputeSourceFile(kernel_options->encodeWith);
-        if (kernel_options->srcfile == NULL)
+        char* shaderSourceFile = plugin_encoder_codec->TC_ComputeSourceFile(kernel_options->encodeWith);
+        if (shaderSourceFile == NULL)
         {
             PrintInfo("Failed to load the encoders shader code\n");
             return CMP_ERR_NOSHADER_CODE_DEFINED;
+        }
+
+        // Encoders that don't compile a shader/kernel at runtime (e.g. HPC, GPU_HW)
+        // report an empty (non-NULL) source file -- that's expected, not an error.
+        if (shaderSourceFile[0] != '\0')
+        {
+            // The shader sources ship with the application, so resolve them against the
+            // executable directory rather than the current working directory.
+            kernel_options->srcfile = const_cast<char*>(CMP_GetCachedInstallPath(shaderSourceFile));
+        }
+        else
+        {
+            kernel_options->srcfile = shaderSourceFile;
         }
     }
 
@@ -427,6 +454,19 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
     assert(srcMipSet);
     assert(dstMipSet);
 
+    // The asserts above are compiled out in release builds, and both pointers are dereferenced
+    // immediately below.
+    if (srcMipSet == NULL)
+    {
+        cmp_mutex.unlock();
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+    }
+    if (dstMipSet == NULL)
+    {
+        cmp_mutex.unlock();
+        return CMP_ERR_INVALID_DEST_TEXTURE;
+    }
+
     // -------------
     // Output
     // -------------
@@ -456,6 +496,14 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
         return CMP_ERR_MEM_ALLOC_FOR_MIPSET;
     }
 
+    // Every failure after the destination allocation must release it, otherwise repeated
+    // malformed or undersized inputs leak the complete destination image.
+    auto failAndRelease = [&](CMP_ERROR error) -> CMP_ERROR {
+        CMips.FreeMipSet(dstMipSet);
+        cmp_mutex.unlock();
+        return error;
+    };
+
     CMP_Texture srcTexture;
     srcTexture.dwSize = sizeof(srcTexture);
     int DestMipLevel  = srcMipSet->m_nMipLevels;
@@ -469,7 +517,93 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             //=====================
             // Uncompressed source
             //======================
-            MipLevel* pInMipLevel   = CMips.GetMipLevel(srcMipSet, nMipLevel, nFaceOrSlice);
+            MipLevel* pInMipLevel = CMips.GetMipLevel(srcMipSet, nMipLevel, nFaceOrSlice);
+
+            if (pInMipLevel == NULL || pInMipLevel->m_pbData == NULL)
+            {
+                return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+            }
+
+            // Guard against integer overflow in width * height before any
+            // arithmetic that uses both dimensions.
+            if (pInMipLevel->m_nWidth <= 0 || pInMipLevel->m_nHeight <= 0)
+            {
+                return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+            }
+            CMP_DWORD srcW = static_cast<CMP_DWORD>(pInMipLevel->m_nWidth);
+            CMP_DWORD srcH = static_cast<CMP_DWORD>(pInMipLevel->m_nHeight);
+            if (srcH > UINT32_MAX / srcW)  // w * h overflow guard
+            {
+                return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+            }
+            // This is the uncompressed-source path; a compressed source mip would bypass the size
+            // derivation below and let the encoder read past a truncated FourCC payload.
+            if (srcMipSet->m_ChannelFormat == CF_Compressed)
+            {
+                return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+            }
+
+            // Reject any uncompressed mip level whose declared dimensions imply more data than was
+            // actually allocated, before the encoder can read past the buffer. The bits-per-pixel
+            // derivation must mirror CMP_CMIPS::AllocateMipLevelData(), which sizes the allocation
+            // from the channel format *and* the texture data type; using the channel format alone
+            // would wrongly reject valid single- and dual-channel sources (R8, RG8, R16F, R32F...).
+            {
+                CMP_DWORD bitsPerPixel = 0;
+                switch (srcMipSet->m_ChannelFormat)
+                {
+                case CF_8bit:
+                case CF_2101010:
+                case CF_1010102:
+                case CF_Float9995E:
+                    bitsPerPixel = 8;
+                    break;
+                case CF_16bit:
+                case CF_Float16:
+                    bitsPerPixel = 16;
+                    break;
+                case CF_32bit:
+                case CF_Float32:
+                    bitsPerPixel = 32;
+                    break;
+                default:  // YUV and any future channel format the encoder cannot consume
+                    return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+                }
+
+                switch (srcMipSet->m_TextureDataType)
+                {
+                case TDT_XRGB:
+                case TDT_ARGB:
+                case TDT_NORMAL_MAP:
+                    bitsPerPixel *= 4;
+                    break;
+                case TDT_RGB:
+                    bitsPerPixel *= 3;
+                    break;
+                case TDT_RG:
+                case TDT_16:
+                    bitsPerPixel *= 2;
+                    break;
+                case TDT_R:
+                case TDT_8:
+                    break;
+                default:
+                    return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+                }
+
+                const CMP_DWORD bytesPerPixel = bitsPerPixel / 8;
+
+                if (srcW * srcH > UINT32_MAX / bytesPerPixel)
+                {
+                    return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+                }
+                CMP_DWORD neededBytes = srcW * srcH * bytesPerPixel;
+                if (pInMipLevel->m_dwLinearSize < neededBytes)
+                {
+                    return failAndRelease(CMP_ERR_INVALID_SOURCE_TEXTURE);
+                }
+            }
+
             srcTexture.dwPitch      = 0;
             srcTexture.nBlockWidth  = srcMipSet->m_nBlockWidth;
             srcTexture.nBlockHeight = srcMipSet->m_nBlockHeight;
@@ -478,13 +612,13 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             srcTexture.dwWidth      = pInMipLevel->m_nWidth;
             srcTexture.dwHeight     = pInMipLevel->m_nHeight;
             srcTexture.pData        = pInMipLevel->m_pbData;
-            srcTexture.dwDataSize   = CMP_CalculateBufferSize(&srcTexture);
+            srcTexture.dwDataSize   = pInMipLevel->m_dwLinearSize;
 
             // Temporary setting!
             srcMipSet->dwWidth    = pInMipLevel->m_nWidth;
             srcMipSet->dwHeight   = pInMipLevel->m_nHeight;
             srcMipSet->pData      = pInMipLevel->m_pbData;
-            srcMipSet->dwDataSize = CMP_CalculateBufferSize(&srcTexture);
+            srcMipSet->dwDataSize = pInMipLevel->m_dwLinearSize;
 
             //========================
             // Compressed Destination
@@ -505,10 +639,9 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             dstMipSet->dwHeight   = pInMipLevel->m_nHeight;
 
             MipLevel* pOutMipLevel = CMips.GetMipLevel(dstMipSet, nMipLevel, nFaceOrSlice);
-            if (!CMips.AllocateCompressedMipLevelData(pOutMipLevel, destTexture.dwWidth, destTexture.dwHeight, destTexture.dwDataSize))
+            if (!pOutMipLevel || !CMips.AllocateCompressedMipLevelData(pOutMipLevel, destTexture.dwWidth, destTexture.dwHeight, destTexture.dwDataSize))
             {
-                cmp_mutex.unlock();
-                return CMP_ERR_MEM_ALLOC_FOR_MIPSET;
+                return failAndRelease(CMP_ERR_MEM_ALLOC_FOR_MIPSET);
             }
 
             destTexture.pData = pOutMipLevel->m_pbData;
@@ -530,8 +663,7 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             if (CMP_CreateComputeLibrary(srcMipSet, &kernelOptions, &CMips) != CMP_OK)
             {
                 PrintInfo("Failed to init HOST Lib. CPU will be used for compression\n");
-                cmp_mutex.unlock();
-                return CMP_ERR_FAILED_HOST_SETUP;
+                return failAndRelease(CMP_ERR_FAILED_HOST_SETUP);
             }
 
             // Init Compute Codec info IO
@@ -545,18 +677,15 @@ CMP_ERROR CMP_API CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSe
             {
                 CMP_DestroyComputeLibrary(true);
                 PrintInfo("Failed to setup SPMD GPU options\n");
-                cmp_mutex.unlock();
-                return CMP_ERR_FAILED_HOST_SETUP;
+                return failAndRelease(CMP_ERR_FAILED_HOST_SETUP);
             }
 
             // Do the compression
             if (CMP_CompressTexture(&kernelOptions, *srcMipSet, *dstMipSet, pFeedbackProc) != CMP_OK)
             {
-                CMips.FreeMipSet(dstMipSet);
                 CMP_DestroyComputeLibrary(true);
                 PrintInfo("Failed to run compute plugin: CPU will be used for compression.\n");
-                cmp_mutex.unlock();
-                return CMP_ERR_FAILED_HOST_SETUP;
+                return failAndRelease(CMP_ERR_FAILED_HOST_SETUP);
             }
 
             // Get Performance Stats
@@ -751,7 +880,11 @@ CMP_ERROR CMP_API CMP_LoadTexture(const char* SourceFile, CMP_MipSet* MipSetIn)
                 // Process Error
                 delete plugin_Image;
                 plugin_Image = NULL;
-                status       = CMP_ERR_UNABLE_TO_LOAD_FILE;
+                // A plugin can allocate mip levels before it detects that the file is malformed.
+                // The stb fallback below memsets MipSetIn, so anything still held here would be
+                // leaked on every failed load.
+                CMips.FreeMipSet(MipSetIn);
+                status = CMP_ERR_UNABLE_TO_LOAD_FILE;
                 break;
             }
 
@@ -760,21 +893,31 @@ CMP_ERROR CMP_API CMP_LoadTexture(const char* SourceFile, CMP_MipSet* MipSetIn)
         }
     } while (0);
 
-    // load failed: try stb lib
     if (status != CMP_OK)
     {
+        // STBI_NO_TGA is defined for this TU, so this fallback can never decode a .tga; TGA is only
+        // ever handled by the dedicated plugin. Note the TGA plugin itself still calls stbi_load()
+        // for TGA sub-formats it does not implement, so stb's TGA decoder is not gone product-wide.
         status = stb_load(SourceFile, MipSetIn);
     }
     else
     {
-        // Make sure MipSetIn->pData is at top mip level
+        // Reached only when the plugin load succeeded. Fill in MipSetIn->pData if the plugin left the
+        // data on the top mip level instead. A plugin can report success without allocating mip
+        // levels, so the level must be checked before it is dereferenced.
         if (MipSetIn->pData == NULL)
         {
             CMP_MipLevel* pOutMipLevel = CMips.GetMipLevel(MipSetIn, 0, 0);
-            MipSetIn->pData            = pOutMipLevel->m_pbData;
-            MipSetIn->dwDataSize       = pOutMipLevel->m_dwLinearSize;
-            MipSetIn->dwHeight         = pOutMipLevel->m_nHeight;
-            MipSetIn->dwWidth          = pOutMipLevel->m_nWidth;
+            if (pOutMipLevel == NULL)
+            {
+                CMips.FreeMipSet(MipSetIn);
+                return CMP_ERR_UNABLE_TO_LOAD_FILE;
+            }
+
+            MipSetIn->pData      = pOutMipLevel->m_pbData;
+            MipSetIn->dwDataSize = pOutMipLevel->m_dwLinearSize;
+            MipSetIn->dwHeight   = pOutMipLevel->m_nHeight;
+            MipSetIn->dwWidth    = pOutMipLevel->m_nWidth;
         }
     }
     return status;

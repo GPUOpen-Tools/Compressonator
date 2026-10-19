@@ -61,6 +61,12 @@ public:
     }
     ~PluginDetails();
 
+    // Set for the duration of PluginManager's own destructor. Only then is it unsafe to
+    // FreeLibrary() a GPU-driver-backed plugin (see the note in ~PluginDetails()); every
+    // other teardown path - clearPluginList() from a getPluginList() refresh, RemovePlugin()
+    // at runtime - must still unload, otherwise modules leak for the life of the process.
+    static bool s_inProcessTeardown;
+
     void* makeNewInstance();
     void  setFileName(char* nm);
     char* getFileName()
@@ -132,7 +138,26 @@ public:
     PluginManager();
     ~PluginManager();
 
-    void          getPluginList(char* dirPath, bool append = false);
+    void getPluginList(char* dirPath, bool append = false);
+    //! Permanently disables the dynamic (directory scanning + LoadLibrary) plugin search, so
+    //! that only statically registered plugins are used. Intended for hosts such as the unit
+    //! test harness that must never load DLLs found in the working directory, including via
+    //! indirect calls made by CMP_RegisterHostPlugins().
+    void disableDynamicPluginScan();
+    //! Disables the PATH-search fallback in getPluginList(), so plugins are only ever found in
+    //! the application directory. Intended for hosts whose own startup DLL trust policy only
+    //! scans the application directory (see applications/common/dll_security_check.h) - falling
+    //! back to a plugin found via PATH would silently bypass that policy. This class has no own
+    //! notion of that policy, so the host must opt in explicitly.
+    void restrictPluginSearchToApplicationDirectory();
+    //! Opts this instance in to toggling PluginDetails::s_inProcessTeardown around
+    //! clearPluginList() in the destructor. Only the single, process-lifetime global
+    //! g_pluginManager (cmp_framework/compute_base.cpp) is destroyed at true CRT static-
+    //! teardown time, where the GPU-driver FreeLibrary deadlock applies - a locally scoped
+    //! PluginManager (e.g. cmp_cas.cpp's main()-local instance) must not flip this process-wide
+    //! static just because it happens to also be destroyed, or it could suppress FreeLibrary for
+    //! an unrelated, still-running global instance.
+    void          markAsProcessGlobalInstance();
     void          getPluginListTypeNames(char* pluginType, std::vector<std::string>& TypeNames);
     void          getPluginListOptionNames(char* pluginType, unsigned long options, std::vector<std::string>& TypeNames);
     void          registerStaticPlugin(char* pluginType, char* pluginName, void* makePlugin);
@@ -152,6 +177,9 @@ public:
 
 private:
     bool                        m_pluginlistset;
+    bool                        m_dynamicscandisabled;
+    bool                        m_pathsearchrestricted;
+    bool                        m_isProcessGlobalInstance;
     char                        m_pluginfolder[MAX_PLUGIN_FILENAME_STR];
     void                        clearPluginList();
     bool                        fileExists(const std::string& abs_filename);

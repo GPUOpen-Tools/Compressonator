@@ -1,11 +1,28 @@
 cmake_minimum_required(VERSION 3.15)
 
-if (NOT CMP_VERSION_MAJOR)
-    set(CMP_VERSION_MAJOR 4)
-endif()
+# Derive the version from cmp_compressonatorlib/version.h so the standalone SDK build
+# cannot drift from the main build and the release scripts (see scripts/get_version.py).
+#
+# A version component of 0 is legitimate (a 5.0 release), and CMake treats the string "0" as
+# false, so every test below compares against the empty string instead of using truthiness.
+if ("${CMP_VERSION_MAJOR}" STREQUAL "" OR "${CMP_VERSION_MINOR}" STREQUAL "")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../cmp_compressonatorlib/version.h" _cmp_version_header)
+    string(REGEX MATCH "#define[ \t]+VERSION_MAJOR_MAJOR[ \t]+([0-9]+)" _cmp_match "${_cmp_version_header}")
+    set(_cmp_header_major "${CMAKE_MATCH_1}")
+    string(REGEX MATCH "#define[ \t]+VERSION_MAJOR_MINOR[ \t]+([0-9]+)" _cmp_match "${_cmp_version_header}")
+    set(_cmp_header_minor "${CMAKE_MATCH_1}")
 
-if (NOT CMP_VERSION_MINOR)
-    set(CMP_VERSION_MINOR 4)
+    if ("${_cmp_header_major}" STREQUAL "" OR "${_cmp_header_minor}" STREQUAL "")
+        message(FATAL_ERROR "Could not parse VERSION_MAJOR_MAJOR/VERSION_MAJOR_MINOR from cmp_compressonatorlib/version.h")
+    endif()
+
+    if ("${CMP_VERSION_MAJOR}" STREQUAL "")
+        set(CMP_VERSION_MAJOR ${_cmp_header_major})
+    endif()
+
+    if ("${CMP_VERSION_MINOR}" STREQUAL "")
+        set(CMP_VERSION_MINOR ${_cmp_header_minor})
+    endif()
 endif()
 
 project(CompressonatorSDK VERSION ${CMP_VERSION_MAJOR}.${CMP_VERSION_MINOR})

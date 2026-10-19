@@ -26,10 +26,13 @@
 
 #include "cmp_shadercompilerhelpervk.h"
 
-#include <SPIRV/GlslangToSpv.h>
-
+#include <cassert>
 #include <fstream>
 #include <iostream>
+
+#include <glslang/Public/ShaderLang.h>       // TShader, TProgram, EShLanguage, EShMessages, InitializeProcess, ...
+#include <glslang/Include/ResourceLimits.h>  // TBuiltInResource (moved out of transitive includes in newer glslang)
+#include <SPIRV/GlslangToSpv.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -253,7 +256,7 @@ bool HLSLtoSPV(const VkShaderStageFlagBits shader_type, const char *pshader, con
 #ifdef ENABLE_HLSL
     shader.setHlslIoMapping(true);
 #endif
-    shader.setEnvTarget(glslang::EshTargetSpv, glslang::EShTargetSpv_1_5);
+    shader.setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
 
     if (!shader.parse(&Resources, 100, false, messages)) {
         dbg_print(shader.getInfoLog());

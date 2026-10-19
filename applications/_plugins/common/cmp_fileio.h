@@ -80,4 +80,69 @@ std::string CMP_GetFullPath(std::string file);
 
 void CMP_ReplaceExt(std::string& s, const std::string& newExt);
 
+// Creates directoryName and every missing parent directory.
+bool CMP_CreateDirTree(const std::string& directoryName);
+
+// True when the current process can create files in directory.
+bool        CMP_IsDirWritable(const std::string& directory);
+bool        CMP_CreateFileExclusive(const std::string& filePath);
+std::string CMP_CreatePrivateTempDirectory();
+// Removes a file or empty directory without throwing; returns false if nothing was removed.
+bool CMP_RemovePath(const std::string& path);
+
+//---------------------------------------------------------------------
+// Install (read only) and per user (writable) locations.
+//
+// Application binaries and shipped resources live under the install
+// directory, which is read only for standard users when the product is
+// installed to %ProgramFiles%. Anything the application generates at run
+// time must go to the per user locations returned below.
+//---------------------------------------------------------------------
+
+// Directory containing the running executable.
+std::string CMP_GetExecutableDir();
+
+// Resolves a resource shipped with the application, such as
+// "./plugins/Compute/BC7_Encode_kernel.cpp", against the executable
+// directory. Returns relativePath unchanged when it is already absolute
+// or cannot be located next to the executable.
+std::string CMP_ResolveInstallPath(const std::string& relativePath);
+
+#define CMP_USER_DATA_VENDOR_DIR "GPUOpen.com"
+#define CMP_USER_DATA_PRODUCT_DIR "Compressonator"
+
+// Placeholder the sample .cprj files use for both source and destination paths.
+#define CMP_PROJECT_SAMPLES_TOKEN "$(CMP_SAMPLES)"
+
+// Shared, all-users writable folder holding the sample content (the images/ and projects/ sub folders).
+// Windows: %ProgramData%/GPUOpen.com/Compressonator (installer)
+// Linux  : /usr/share/compressonator, /usr/local/share/compressonator or <exe dir>/share/compressonator
+// macOS  : <bundle>/Contents/Resources
+// Falls back to the executable directory, which is where developer builds deploy the samples.
+// Returns an empty string when no sample content could be found.
+std::string CMP_GetSampleDataDir();
+
+// Per user writable root for application data, creating it if needed.
+// Windows: %LOCALAPPDATA%/GPUOpen.com/Compressonator
+// Linux  : $XDG_DATA_HOME/GPUOpen.com/Compressonator or ~/.local/share/GPUOpen.com/Compressonator
+// macOS  : ~/Library/Application Support/GPUOpen.com/Compressonator
+// Returns an empty string when no writable location could be created.
+std::string CMP_GetUserDataDir(const std::string& subDir = "");
+
+// Per user writable root for regenerable artifacts (compiled kernels and shaders).
+std::string CMP_GetUserCacheDir(const std::string& subDir = "");
+
+// Per user writable location for processed output when the requested destination folder is
+// read only, such as the sample content installed under the install directory.
+// Returns an empty string when no writable location could be created.
+std::string CMP_GetUserResultsDir();
+
+// Maps a kernel or shader source path in the install directory to the path of
+// its compiled binary in the per user shader cache, for example
+// "%LOCALAPPDATA%\GPUOpen.com\Compressonator\cache\shaders\0123abcd_BC7_Encode_kernel.cpp.cmp".
+std::string CMP_GetShaderCacheFilePath(const std::string& sourceFilePath, const std::string& suffix);
+
+// True when cacheFilePath is missing, unreadable or older than sourceFilePath.
+bool CMP_ShaderCacheIsStale(const std::string& sourceFilePath, const std::string& cacheFilePath);
+
 #endif

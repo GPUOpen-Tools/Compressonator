@@ -7,6 +7,9 @@ if(CMP_HOST_WINDOWS)
     target_compile_definitions(CMP_Framework PUBLIC
         -DCMP_USE_XMMINTRIN
     )
+    if(OPTION_CMP_DLL_SECURITY_CHECK)
+        target_compile_definitions(CMP_Framework PRIVATE DLL_SECURITY_CHECK_ALL_DLLS)
+    endif()
 endif()
 
 file(GLOB_RECURSE HALF_SRC
@@ -154,3 +157,8 @@ endif()
 set_target_properties(CMP_Framework PROPERTIES FOLDER ${PROJECT_FOLDER_SDK_LIBS})
 
 target_link_libraries(CMP_Framework PUBLIC CMP_Core)
+
+# cmp_fileio.cpp uses token/security descriptor APIs
+if (WIN32)
+    target_link_libraries(CMP_Framework PUBLIC advapi32)
+endif()

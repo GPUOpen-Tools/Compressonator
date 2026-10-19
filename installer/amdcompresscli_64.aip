@@ -25,11 +25,11 @@
     <ROW Property="BannerBitmap" Value="banner" MultiBuildValue="DefaultBuild:AMDCompressTools.bmp" Type="1" MsiKey="BannerBitmap"/>
     <ROW Property="DialogBitmap" Value="dialog" MultiBuildValue="DefaultBuild:AMDCompress.bmp" Type="1" MsiKey="DialogBitmap"/>
     <ROW Property="Manufacturer" Value="GPUOpen.com"/>
-    <ROW Property="ProductCode" Value="1033:{68541859-9B40-4FD1-839B-020CF230A63B} " Type="16"/>
+    <ROW Property="ProductCode" Value="1033:{C8DE87FB-E223-42F3-8ADA-367F83831A30} " Type="16"/>
     <ROW Property="ProductLanguage" Value="1033"/>
     <ROW Property="ProductName" Value="CompressonatorCLI"/>
-    <ROW Property="ProductVersion" Value="4.5.0" Type="32"/>
-    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorCLI_x64_4.1."/>
+    <ROW Property="ProductVersion" Value="4.6.0" Type="32"/>
+    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorCLI_x64_4.6." MultiBuildValue="DefaultBuild:CompressonatorCLI_x64_4.6.0"/>
     <ROW Property="SecureCustomProperties" Value="OLDPRODUCTS;AI_NEWERPRODUCTFOUND;AI_SETUPEXEPATH;SETUPEXEDIR"/>
     <ROW Property="UpgradeCode" Value="{7C579BB2-FB41-4071-A8E8-5054C6802B0A}"/>
     <ROW Property="WindowsType9X" MultiBuildValue="DefaultBuild:Windows 9x/ME" ValueLocId="-"/>
@@ -43,80 +43,99 @@
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiDirsComponent">
     <ROW Directory="APPDIR" Directory_Parent="TARGETDIR" DefaultDir="APPDIR:." IsPseudoRoot="1" DirectoryOptions="2"/>
+    <ROW Directory="CommonAppDataFolder" Directory_Parent="TARGETDIR" DefaultDir="COMMON~1|CommonAppDataFolder" IsPseudoRoot="1"/>
+    <ROW Directory="Compressonator_Dir" Directory_Parent="GPUOpen.com_Dir" DefaultDir="COMPRE~1|Compressonator" DirectoryOptions="12"/>
+    <ROW Directory="GPUOpen.com_Dir" Directory_Parent="CommonAppDataFolder" DefaultDir="GPUOpen.com"/>
     <ROW Directory="SHORTCUTDIR" Directory_Parent="TARGETDIR" DefaultDir="SHORTC~1|SHORTCUTDIR" IsPseudoRoot="1"/>
     <ROW Directory="TARGETDIR" DefaultDir="SourceDir"/>
-    <ROW Directory="astc_Dir" Directory_Parent="license1_Dir" DefaultDir="astc" DirectoryOptions="3"/>
-    <ROW Directory="bin_1_Dir" Directory_Parent="APPDIR" DefaultDir="bin" DirectoryOptions="2"/>
-    <ROW Directory="bin_Dir" Directory_Parent="bin_1_Dir" DefaultDir="CLI" DirectoryOptions="2"/>
-    <ROW Directory="compute_Dir" Directory_Parent="plugins_Dir" DefaultDir="compute" DirectoryOptions="3"/>
-    <ROW Directory="directxtex_Dir" Directory_Parent="license1_Dir" DefaultDir="DIRECT~1|directxtex" DirectoryOptions="3"/>
-    <ROW Directory="etcpack_Dir" Directory_Parent="license1_Dir" DefaultDir="etcpack" DirectoryOptions="3"/>
-    <ROW Directory="html_Dir" Directory_Parent="bin_Dir" DefaultDir="DOCUME~1|documents" DirectoryOptions="3"/>
-    <ROW Directory="imageformats_Dir" Directory_Parent="plugins_Dir" DefaultDir="IMAGEF~1|imageformats" DirectoryOptions="3"/>
-    <ROW Directory="images_Dir" Directory_Parent="bin_Dir" DefaultDir="images" DirectoryOptions="3"/>
-    <ROW Directory="imgui_Dir" Directory_Parent="license1_Dir" DefaultDir="imgui" DirectoryOptions="3"/>
-    <ROW Directory="json_Dir" Directory_Parent="license1_Dir" DefaultDir="json" DirectoryOptions="3"/>
-    <ROW Directory="license1_Dir" Directory_Parent="bin_Dir" DefaultDir="license" DirectoryOptions="3"/>
-    <ROW Directory="opencv_Dir" Directory_Parent="license1_Dir" DefaultDir="opencv" DirectoryOptions="3"/>
-    <ROW Directory="openexr_Dir" Directory_Parent="license1_Dir" DefaultDir="openexr" DirectoryOptions="3"/>
-    <ROW Directory="platforms_Dir" Directory_Parent="plugins_Dir" DefaultDir="PLATFO~1|platforms" DirectoryOptions="3"/>
-    <ROW Directory="plugins_Dir" Directory_Parent="bin_Dir" DefaultDir="plugins" DirectoryOptions="2"/>
+    <ROW Directory="astc_Dir" Directory_Parent="license1_Dir" DefaultDir="astc" DirectoryOptions="15"/>
+    <ROW Directory="bin_1_Dir" Directory_Parent="APPDIR" DefaultDir="bin" DirectoryOptions="14"/>
+    <ROW Directory="bin_Dir" Directory_Parent="bin_1_Dir" DefaultDir="CLI" DirectoryOptions="14"/>
+    <ROW Directory="compute_Dir" Directory_Parent="plugins_Dir" DefaultDir="compute" DirectoryOptions="15"/>
+    <ROW Directory="directxtex_Dir" Directory_Parent="license1_Dir" DefaultDir="DIRECT~1|directxtex" DirectoryOptions="15"/>
+    <ROW Directory="etcpack_Dir" Directory_Parent="license1_Dir" DefaultDir="etcpack" DirectoryOptions="15"/>
+    <ROW Directory="html_Dir" Directory_Parent="bin_Dir" DefaultDir="DOCUME~1|documents" DirectoryOptions="15"/>
+    <ROW Directory="imageformats_Dir" Directory_Parent="plugins_Dir" DefaultDir="IMAGEF~1|imageformats" DirectoryOptions="15"/>
+    <ROW Directory="images_Dir" Directory_Parent="Compressonator_Dir" DefaultDir="images" DirectoryOptions="15"/>
+    <ROW Directory="imgui_Dir" Directory_Parent="license1_Dir" DefaultDir="imgui" DirectoryOptions="15"/>
+    <ROW Directory="json_Dir" Directory_Parent="license1_Dir" DefaultDir="json" DirectoryOptions="15"/>
+    <ROW Directory="license1_Dir" Directory_Parent="bin_Dir" DefaultDir="license" DirectoryOptions="15"/>
+    <ROW Directory="opencv_Dir" Directory_Parent="license1_Dir" DefaultDir="opencv" DirectoryOptions="15"/>
+    <ROW Directory="openexr_Dir" Directory_Parent="license1_Dir" DefaultDir="openexr" DirectoryOptions="15"/>
+    <ROW Directory="platforms_Dir" Directory_Parent="plugins_Dir" DefaultDir="PLATFO~1|platforms" DirectoryOptions="15"/>
+    <ROW Directory="plugins_Dir" Directory_Parent="bin_Dir" DefaultDir="plugins" DirectoryOptions="14"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiCompsComponent">
-    <ROW Component="AI_CustomARPName" ComponentId="{A95BCCAB-9DDB-4709-9A3A-A8AF4E17BCDB}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
-    <ROW Component="AI_DisableModify" ComponentId="{07872805-9E9D-455C-9994-8CD0E7BB5621}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
-    <ROW Component="AI_ExePath" ComponentId="{182FEE9D-1C39-4613-84C5-77B96467B468}" Directory_="APPDIR" Attributes="4" KeyPath="AI_ExePath"/>
-    <ROW Component="EncodeWith_DXC.dll" ComponentId="{631F6804-B36A-420F-9466-CE1B03BC1951}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_DXC.dll"/>
-    <ROW Component="EncodeWith_GPU.dll" ComponentId="{40630FBA-D498-462C-8178-501F3509C644}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_GPU.dll"/>
-    <ROW Component="EncodeWith_OCL.dll" ComponentId="{04841A3E-1C8B-48FA-A741-F47B238F0C2B}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_OCL.dll"/>
-    <ROW Component="GPUDecode_DirectX.dll" ComponentId="{A7F85E55-4E6C-479F-97D8-F2329012F0EB}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_DirectX.dll"/>
-    <ROW Component="GPUDecode_OpenGL.dll" ComponentId="{C2E13CB2-229E-43AB-A15B-1D505D725E8F}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_OpenGL.dll"/>
-    <ROW Component="GPUDecode_Vulkan.dll" ComponentId="{03479CD4-EF81-4D18-8A21-8A116EE5DE67}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_Vulkan.dll"/>
-    <ROW Component="Image_FilterFX.dll" ComponentId="{D8E357AE-7422-438D-86AD-E01AF81B36FC}" Directory_="plugins_Dir" Attributes="256" KeyPath="Image_FilterFX.dll"/>
-    <ROW Component="Image_MipMap.dll" ComponentId="{6572DAB5-AA0D-4151-A78D-6D2832E6358B}" Directory_="plugins_Dir" Attributes="256" KeyPath="Image_MipMap.dll"/>
-    <ROW Component="Mesh_Compressor.dll" ComponentId="{BDA38DC3-15B7-452E-8CAD-8E80A94C5E72}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Compressor.dll"/>
-    <ROW Component="Mesh_Optimizer.dll" ComponentId="{BA32E7AC-50AE-4D9B-BDED-459C01977472}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Optimizer.dll"/>
-    <ROW Component="Mesh_Tootle.dll" ComponentId="{666F338B-7749-403A-BB25-E508A688132C}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Tootle.dll"/>
-    <ROW Component="ModelLoader_gltf.dll" ComponentId="{6752301B-C8A0-4FC1-B998-55EDE027219B}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelLoader_gltf.dll"/>
-    <ROW Component="ModelLoader_obj.dll" ComponentId="{F4FDC8AA-8A0F-41FA-9EC4-3B35226567AF}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelLoader_obj.dll"/>
-    <ROW Component="ModelViewer_DX12.dll" ComponentId="{C2B36240-68C5-42C3-A44B-45467D65827A}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_DX12.dll"/>
-    <ROW Component="ModelViewer_OpenGL.dll" ComponentId="{10065E86-2771-4B47-A73C-C51445DDF4C6}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_OpenGL.dll"/>
-    <ROW Component="ModelViewer_Vulkan.dll" ComponentId="{4933149B-5553-4DE6-81C5-FA4E20F4093C}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_Vulkan.dll"/>
-    <ROW Component="Name" ComponentId="{25FBF020-81DF-4A7E-BCA6-780BADBA7278}" Directory_="APPDIR" Attributes="260" KeyPath="Name"/>
-    <ROW Component="ProductInformation" ComponentId="{A58322B9-6439-454D-B31B-E3EF63065836}" Directory_="APPDIR" Attributes="4" KeyPath="Version"/>
-    <ROW Component="Qt5Core.dll_1" ComponentId="{387C5BF8-88F2-40C0-917C-84B05B7B13CE}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Core.dll_1"/>
-    <ROW Component="Qt5Gui.dll_1" ComponentId="{36D48AEB-7ECF-43B7-8DB7-6680F28179C5}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Gui.dll_1"/>
-    <ROW Component="Qt5OpenGL.dll" ComponentId="{7EE80AD3-1347-4AAD-81A5-BC23DB30D516}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5OpenGL.dll"/>
-    <ROW Component="Qt5Widgets.dll" ComponentId="{82B87044-D37F-45B9-A076-AF1834FEF949}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Widgets.dll"/>
-    <ROW Component="SHORTCUTDIR" ComponentId="{EA38A939-5F3F-484E-B30E-10FAB32BC5B8}" Directory_="SHORTCUTDIR" Attributes="0"/>
-    <ROW Component="balls.exr" ComponentId="{703F439F-062A-4A19-9775-54933C9FA1BF}" Directory_="images_Dir" Attributes="0" KeyPath="_Image_credits.txt" Type="0"/>
-    <ROW Component="bc1_encode_kernel.h" ComponentId="{F3B3D1CB-9A51-413E-AFCD-44CF3D22E31E}" Directory_="compute_Dir" Attributes="0" KeyPath="bc1_encode_kernel.h" Type="0"/>
-    <ROW Component="clilicense.txt" ComponentId="{A19F6FA6-7B12-4213-93DA-DA16095C5343}" Directory_="license1_Dir" Attributes="0" KeyPath="clilicense.txt" Type="0"/>
-    <ROW Component="compressonatorcli.exe" ComponentId="{6359D93A-F3F8-4E88-8372-BC67837CF8AB}" Directory_="bin_Dir" Attributes="256" KeyPath="compressonatorcli.exe"/>
-    <ROW Component="documents" ComponentId="{532C796F-5C68-43E8-8A5C-D8BD11242A9B}" Directory_="html_Dir" Attributes="0"/>
-    <ROW Component="dxcompiler.dll" ComponentId="{12ABFE60-3785-49EA-B9A3-84A22E2F4DF5}" Directory_="bin_Dir" Attributes="256" KeyPath="dxcompiler.dll"/>
-    <ROW Component="dxil.dll" ComponentId="{3C77C556-3F7B-4743-9222-F0F07EB2430F}" Directory_="bin_Dir" Attributes="256" KeyPath="dxil.dll"/>
-    <ROW Component="glew32.dll" ComponentId="{C2762682-17FB-474C-A976-4E28C785924B}" Directory_="bin_Dir" Attributes="256" KeyPath="glew32.dll_1"/>
-    <ROW Component="ktx.dll" ComponentId="{2B6516B1-C041-4B0D-8067-AA0EBA80773D}" Directory_="bin_Dir" Attributes="256" KeyPath="ktx.dll"/>
-    <ROW Component="licence.txt" ComponentId="{3A4E48A3-A59E-4826-899F-5A1EDAD11692}" Directory_="etcpack_Dir" Attributes="0" KeyPath="licence.txt" Type="0"/>
-    <ROW Component="license" ComponentId="{CB14FF82-573A-4BF4-9716-6AEF9A8D1699}" Directory_="directxtex_Dir" Attributes="0" KeyPath="license" Type="0"/>
-    <ROW Component="license.txt" ComponentId="{678DBAEC-81AA-4FAD-A066-A823D4E5B5AF}" Directory_="astc_Dir" Attributes="0" KeyPath="license.txt" Type="0"/>
-    <ROW Component="license.txt_1" ComponentId="{A3EC24D8-5284-40FC-A52D-0E71010AF01A}" Directory_="imgui_Dir" Attributes="0" KeyPath="license.txt_1" Type="0"/>
-    <ROW Component="license.txt_2" ComponentId="{E579DF5E-8D2E-480B-AE9B-BCFDF99CECAF}" Directory_="json_Dir" Attributes="0" KeyPath="license.txt_2" Type="0"/>
-    <ROW Component="license.txt_3" ComponentId="{D654F7AA-A5A4-4BBF-90B9-11935A7668CE}" Directory_="opencv_Dir" Attributes="0" KeyPath="license.txt_3" Type="0"/>
-    <ROW Component="license_1" ComponentId="{87B65390-3E4D-4106-8634-97E2B4023488}" Directory_="openexr_Dir" Attributes="0" KeyPath="license_1" Type="0"/>
-    <ROW Component="opencv_core249.dll_1" ComponentId="{2283022E-E5A6-42FE-A965-14109CE28CFA}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_core249.dll_1"/>
-    <ROW Component="opencv_imgproc249.dll_1" ComponentId="{64C46931-D95F-49F3-8E21-F51D04BE3613}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_imgproc249.dll_1"/>
-    <ROW Component="opencv_world420.dll" ComponentId="{436659EC-2591-4665-ADEC-11DF2B97CD02}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_world420.dll"/>
-    <ROW Component="qjpeg.dll" ComponentId="{B2F0249C-AB97-44C5-81E7-D1FFF3CE1D66}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qjpeg.dll"/>
-    <ROW Component="qt.conf" ComponentId="{2DC4B6C5-5935-4833-A319-9CBA33D63541}" Directory_="bin_Dir" Attributes="0" KeyPath="qt.conf_1"/>
-    <ROW Component="qtga.dll" ComponentId="{6EB7D927-4262-4A69-B4FD-3579B3A0372F}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qtga.dll"/>
-    <ROW Component="qtiff.dll" ComponentId="{2E861FBC-F9BA-4ABC-8E51-1B1DCCDF8455}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qtiff.dll"/>
-    <ROW Component="qwindows.dll" ComponentId="{ADA584CF-DCEA-42AB-83AC-C1C0AA6907B2}" Directory_="platforms_Dir" Attributes="256" KeyPath="qwindows.dll"/>
-    <ROW Component="texture.frag.spv_1" ComponentId="{6EDE5035-4E9B-4016-AAE1-7C5AA41C8D35}" Directory_="bin_Dir" Attributes="0" KeyPath="texture.frag.spv_1"/>
+    <ROW Component="AI_CustomARPName" ComponentId="{72E9C3BE-DC8C-41BD-BD53-272D455CCC01}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
+    <ROW Component="AI_DisableModify" ComponentId="{22E35D3F-CE82-4D21-8294-1FFA02AED47E}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
+    <ROW Component="AI_ExePath" ComponentId="{C43638C0-D16D-4582-A7E2-1C8A5BE56690}" Directory_="APPDIR" Attributes="4" KeyPath="AI_ExePath"/>
+    <ROW Component="CLI" ComponentId="{7B4519F3-E4FB-4C9E-A512-8BEF00B04CC1}" Directory_="bin_Dir" Attributes="0"/>
+    <ROW Component="Compressonator" ComponentId="{7598B6F0-F18F-449B-B454-8FD3F1E30DA1}" Directory_="Compressonator_Dir" Attributes="0"/>
+    <ROW Component="EncodeWith_DXC.dll" ComponentId="{01FCD552-2565-4E5C-AB66-489B3567E4B8}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_DXC.dll"/>
+    <ROW Component="EncodeWith_GPU.dll" ComponentId="{B5D8F887-EDEE-41D4-B3DF-F0627F0DEAFD}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_GPU.dll"/>
+    <ROW Component="EncodeWith_OCL.dll" ComponentId="{02ABE764-8197-4C58-A2EA-FB3DB1038953}" Directory_="plugins_Dir" Attributes="256" KeyPath="EncodeWith_OCL.dll"/>
+    <ROW Component="GPUDecode_DirectX.dll" ComponentId="{440B69B8-936A-4AB6-B2E0-C5506A40024A}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_DirectX.dll"/>
+    <ROW Component="GPUDecode_OpenGL.dll" ComponentId="{AA552D74-5B88-4479-8038-2561F5210BE4}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_OpenGL.dll"/>
+    <ROW Component="GPUDecode_Vulkan.dll" ComponentId="{E3FC8FB8-74E6-4F6C-A4AE-8C7252A7E4C4}" Directory_="plugins_Dir" Attributes="256" KeyPath="GPUDecode_Vulkan.dll"/>
+    <ROW Component="Image_FilterFX.dll" ComponentId="{9A2F2A5C-88A8-4AB8-8DB3-1DD7B7F4ED55}" Directory_="plugins_Dir" Attributes="256" KeyPath="Image_FilterFX.dll"/>
+    <ROW Component="Image_MipMap.dll" ComponentId="{5BFA81F3-0626-46C5-B168-48BF857CF2B0}" Directory_="plugins_Dir" Attributes="256" KeyPath="Image_MipMap.dll"/>
+    <ROW Component="Mesh_Compressor.dll" ComponentId="{DAAD19E5-50F8-4A6F-9923-966FCA642799}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Compressor.dll"/>
+    <ROW Component="Mesh_Optimizer.dll" ComponentId="{C65E3B67-5C3C-4B6B-9CC5-FCE83B9A9E2A}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Optimizer.dll"/>
+    <ROW Component="Mesh_Tootle.dll" ComponentId="{18854A72-4AEE-4FEB-BBBA-E36D8415D007}" Directory_="plugins_Dir" Attributes="256" KeyPath="Mesh_Tootle.dll"/>
+    <ROW Component="ModelLoader_gltf.dll" ComponentId="{66D57C64-CC61-43E2-8F8E-A5ED62D235ED}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelLoader_gltf.dll"/>
+    <ROW Component="ModelLoader_obj.dll" ComponentId="{7733809F-E226-43C4-91B6-4A5099414CBA}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelLoader_obj.dll"/>
+    <ROW Component="ModelViewer_DX12.dll" ComponentId="{2248B5EE-672B-49B4-9289-9BBC06957245}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_DX12.dll"/>
+    <ROW Component="ModelViewer_OpenGL.dll" ComponentId="{D4953D9F-7C1E-46CB-B466-435979600C4F}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_OpenGL.dll"/>
+    <ROW Component="ModelViewer_Vulkan.dll" ComponentId="{EBBD4227-A7A5-49BD-AFFB-2FB8289779A2}" Directory_="plugins_Dir" Attributes="256" KeyPath="ModelViewer_Vulkan.dll"/>
+    <ROW Component="Name" ComponentId="{4345933C-C8FB-4ABA-84CE-1866A12E2AD8}" Directory_="APPDIR" Attributes="260" KeyPath="Name"/>
+    <ROW Component="ProductInformation" ComponentId="{B0064AFF-7842-4E37-A49E-5ACEE4285811}" Directory_="APPDIR" Attributes="4" KeyPath="Version"/>
+    <ROW Component="Qt5Core.dll_1" ComponentId="{BD63237D-27F2-438D-8BA7-5327950CC546}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Core.dll_1"/>
+    <ROW Component="Qt5Gui.dll_1" ComponentId="{464F7C06-81F5-4A5C-8D72-D4177A1C3650}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Gui.dll_1"/>
+    <ROW Component="Qt5OpenGL.dll" ComponentId="{91FACEAD-2153-47D5-A3CF-83B28291C994}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5OpenGL.dll"/>
+    <ROW Component="Qt5Widgets.dll" ComponentId="{FA3BA525-85E0-4990-8C12-C956905BB210}" Directory_="bin_Dir" Attributes="256" KeyPath="Qt5Widgets.dll"/>
+    <ROW Component="SHORTCUTDIR" ComponentId="{F625F929-88FF-4747-87E3-EA1A91B78E83}" Directory_="SHORTCUTDIR" Attributes="0"/>
+    <ROW Component="astc" ComponentId="{B9E7C953-1EBC-4B1C-BF0B-E05FEB6731F7}" Directory_="astc_Dir" Attributes="0"/>
+    <ROW Component="balls.exr" ComponentId="{884A0B9F-84DC-4022-B1E9-D6CA3592A5B6}" Directory_="images_Dir" Attributes="0" KeyPath="_Image_credits.txt" Type="0"/>
+    <ROW Component="bc1_encode_kernel.h" ComponentId="{4473F034-8FE6-411C-9DC9-64AF018F49F0}" Directory_="compute_Dir" Attributes="0" KeyPath="bc1_encode_kernel.h" Type="0"/>
+    <ROW Component="bin" ComponentId="{16C758F9-3F09-4D96-867F-F79D09F21848}" Directory_="bin_1_Dir" Attributes="0"/>
+    <ROW Component="clilicense.txt" ComponentId="{452AAB6A-E8FE-4C7D-8DAB-4FF719FE1A0B}" Directory_="license1_Dir" Attributes="0" KeyPath="clilicense.txt" Type="0"/>
+    <ROW Component="compressonatorcli.exe" ComponentId="{9D68EBDC-4859-4552-A82B-F2F5D7E7309E}" Directory_="bin_Dir" Attributes="256" KeyPath="compressonatorcli.exe"/>
+    <ROW Component="compute" ComponentId="{8EE95112-F40E-4933-97D5-D3F0F9343D2A}" Directory_="compute_Dir" Attributes="0"/>
+    <ROW Component="directxtex" ComponentId="{8BABEE77-DA37-4BE1-B9A1-E27396211C98}" Directory_="directxtex_Dir" Attributes="0"/>
+    <ROW Component="documents" ComponentId="{806FA346-0507-4C34-98C8-5EFACA8A8652}" Directory_="html_Dir" Attributes="0"/>
+    <ROW Component="dxcompiler.dll" ComponentId="{84428A21-6F99-4BA1-B94F-6658FDA1CBCD}" Directory_="bin_Dir" Attributes="256" KeyPath="dxcompiler.dll"/>
+    <ROW Component="dxil.dll" ComponentId="{5E438544-CE22-4CDE-853D-0DB9AB82DD26}" Directory_="bin_Dir" Attributes="256" KeyPath="dxil.dll"/>
+    <ROW Component="etcpack" ComponentId="{691EEA4A-45A0-41B1-98C7-5F1D5320BD33}" Directory_="etcpack_Dir" Attributes="0"/>
+    <ROW Component="glew32.dll" ComponentId="{9CB95515-6212-4CD8-92A4-7BEDEA6BA435}" Directory_="bin_Dir" Attributes="256" KeyPath="glew32.dll_1"/>
+    <ROW Component="imageformats" ComponentId="{FD1BDED3-C265-42B6-A70D-9B87AE32D2AB}" Directory_="imageformats_Dir" Attributes="0"/>
+    <ROW Component="images" ComponentId="{3DA07CF0-F65F-4E0E-895F-DE644E37BE6F}" Directory_="images_Dir" Attributes="0"/>
+    <ROW Component="imgui" ComponentId="{C73E5674-6D4D-4E49-947C-9505CA41C6C9}" Directory_="imgui_Dir" Attributes="0"/>
+    <ROW Component="json" ComponentId="{4DF476F4-AF74-4168-B2F2-31380F0F5475}" Directory_="json_Dir" Attributes="0"/>
+    <ROW Component="ktx.dll" ComponentId="{22BB1061-A8E8-4E11-AB13-4A61508E5E41}" Directory_="bin_Dir" Attributes="256" KeyPath="ktx.dll"/>
+    <ROW Component="licence.txt" ComponentId="{68D8AE0B-8D28-430C-9876-6FEA253FEE12}" Directory_="etcpack_Dir" Attributes="0" KeyPath="licence.txt" Type="0"/>
+    <ROW Component="license" ComponentId="{3320F50F-93F6-4EDC-9D40-0CE96568F5D2}" Directory_="directxtex_Dir" Attributes="0" KeyPath="license" Type="0"/>
+    <ROW Component="license.txt" ComponentId="{7D39C23C-7F81-43A5-8AA6-95A09734A4CD}" Directory_="astc_Dir" Attributes="0" KeyPath="license.txt" Type="0"/>
+    <ROW Component="license.txt_1" ComponentId="{4FCB4B96-E54A-4C22-B396-A7552DBC79F5}" Directory_="imgui_Dir" Attributes="0" KeyPath="license.txt_1" Type="0"/>
+    <ROW Component="license.txt_2" ComponentId="{EE0660CE-E726-46B9-B11A-DE458EA3981C}" Directory_="json_Dir" Attributes="0" KeyPath="license.txt_2" Type="0"/>
+    <ROW Component="license.txt_3" ComponentId="{76091336-D29E-49B9-A0B5-28E86AAACB8A}" Directory_="opencv_Dir" Attributes="0" KeyPath="license.txt_3" Type="0"/>
+    <ROW Component="license_1" ComponentId="{C0D94183-4078-42FD-9614-547EE685C352}" Directory_="openexr_Dir" Attributes="0" KeyPath="license_1" Type="0"/>
+    <ROW Component="license_2" ComponentId="{5430E33E-A008-47DF-9E81-68235EA7444F}" Directory_="license1_Dir" Attributes="0"/>
+    <ROW Component="opencv" ComponentId="{1FBF4A6F-CAC5-428F-8DC5-A1DD0B9DE477}" Directory_="opencv_Dir" Attributes="0"/>
+    <ROW Component="opencv_core249.dll_1" ComponentId="{95F35E4C-0077-4DB2-BB5C-4365CE1AA2CC}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_core249.dll_1"/>
+    <ROW Component="opencv_imgproc249.dll_1" ComponentId="{097D7FD7-B24A-4865-A74C-9E47BF3B43B3}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_imgproc249.dll_1"/>
+    <ROW Component="opencv_world420.dll" ComponentId="{FFEBB95F-6CBC-414D-BA56-FA8CAB55DD99}" Directory_="bin_Dir" Attributes="256" KeyPath="opencv_world420.dll"/>
+    <ROW Component="openexr" ComponentId="{914CEF2D-83A2-4428-B84C-034060A765DD}" Directory_="openexr_Dir" Attributes="0"/>
+    <ROW Component="platforms" ComponentId="{9139C674-C25F-4F1C-9F25-8604250D8796}" Directory_="platforms_Dir" Attributes="0"/>
+    <ROW Component="plugins" ComponentId="{DE185DBA-7DDE-49DA-BE45-B2C3B4F8010A}" Directory_="plugins_Dir" Attributes="0"/>
+    <ROW Component="qjpeg.dll" ComponentId="{696289C9-8B5E-4EF9-BC93-0E0AF86F872C}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qjpeg.dll"/>
+    <ROW Component="qt.conf" ComponentId="{EA6EA3C6-099C-4057-9B14-1AC0D34E61DB}" Directory_="bin_Dir" Attributes="0" KeyPath="qt.conf_1"/>
+    <ROW Component="qtga.dll" ComponentId="{D78DE576-BC47-4A55-ABC6-BB07C1D48DF2}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qtga.dll"/>
+    <ROW Component="qtiff.dll" ComponentId="{7E2230B0-3DC3-4FB4-9238-D3D62D692276}" Directory_="imageformats_Dir" Attributes="256" KeyPath="qtiff.dll"/>
+    <ROW Component="qwindows.dll" ComponentId="{2DB3574D-7608-451D-ACA5-6B1B5FCC20B6}" Directory_="platforms_Dir" Attributes="256" KeyPath="qwindows.dll"/>
+    <ROW Component="texture.frag.spv_1" ComponentId="{0A50DF88-F637-41C7-A09C-BA98F1B85E3E}" Directory_="bin_Dir" Attributes="0" KeyPath="texture.frag.spv_1"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiFeatsComponent">
-    <ROW Feature="CommandLineInterface" Title="Command Line Interface" Description="Description" Display="4" Level="1" Directory_="APPDIR" Attributes="24" Components="AI_CustomARPName AI_DisableModify AI_ExePath EncodeWith_DXC.dll EncodeWith_GPU.dll EncodeWith_OCL.dll GPUDecode_DirectX.dll GPUDecode_OpenGL.dll GPUDecode_Vulkan.dll Image_FilterFX.dll Image_MipMap.dll Mesh_Compressor.dll Mesh_Optimizer.dll Mesh_Tootle.dll ModelLoader_gltf.dll ModelLoader_obj.dll ModelViewer_DX12.dll ModelViewer_OpenGL.dll ModelViewer_Vulkan.dll Name ProductInformation Qt5Core.dll_1 Qt5Gui.dll_1 Qt5OpenGL.dll Qt5Widgets.dll SHORTCUTDIR balls.exr bc1_encode_kernel.h clilicense.txt compressonatorcli.exe documents dxcompiler.dll dxil.dll glew32.dll ktx.dll licence.txt license license.txt license.txt_1 license.txt_2 license.txt_3 license_1 opencv_core249.dll_1 opencv_imgproc249.dll_1 opencv_world420.dll qjpeg.dll qt.conf qtga.dll qtiff.dll qwindows.dll texture.frag.spv_1"/>
+    <ROW Feature="CommandLineInterface" Title="Command Line Interface" Description="Description" Display="4" Level="1" Directory_="APPDIR" Attributes="24" Components="AI_CustomARPName AI_DisableModify AI_ExePath CLI Compressonator EncodeWith_DXC.dll EncodeWith_GPU.dll EncodeWith_OCL.dll GPUDecode_DirectX.dll GPUDecode_OpenGL.dll GPUDecode_Vulkan.dll Image_FilterFX.dll Image_MipMap.dll Mesh_Compressor.dll Mesh_Optimizer.dll Mesh_Tootle.dll ModelLoader_gltf.dll ModelLoader_obj.dll ModelViewer_DX12.dll ModelViewer_OpenGL.dll ModelViewer_Vulkan.dll Name ProductInformation Qt5Core.dll_1 Qt5Gui.dll_1 Qt5OpenGL.dll Qt5Widgets.dll SHORTCUTDIR astc balls.exr bc1_encode_kernel.h bin clilicense.txt compressonatorcli.exe compute directxtex documents dxcompiler.dll dxil.dll etcpack glew32.dll imageformats images imgui json ktx.dll licence.txt license license.txt license.txt_1 license.txt_2 license.txt_3 license_1 license_2 opencv opencv_core249.dll_1 opencv_imgproc249.dll_1 opencv_world420.dll openexr platforms plugins qjpeg.dll qt.conf qtga.dll qtiff.dll qwindows.dll texture.frag.spv_1"/>
     <ATTRIBUTE name="CurrentFeature" value="CommandLineInterface"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiFilesComponent">
@@ -297,6 +316,22 @@
   <COMPONENT cid="caphyon.advinst.msicomp.MsiCreateFolderComponent">
     <ROW Directory_="SHORTCUTDIR" Component_="SHORTCUTDIR" ManualDelete="false"/>
     <ROW Directory_="html_Dir" Component_="documents" ManualDelete="false"/>
+    <ROW Directory_="bin_1_Dir" Component_="bin" ManualDelete="true"/>
+    <ROW Directory_="bin_Dir" Component_="CLI" ManualDelete="false"/>
+    <ROW Directory_="images_Dir" Component_="images" ManualDelete="false"/>
+    <ROW Directory_="plugins_Dir" Component_="plugins" ManualDelete="false"/>
+    <ROW Directory_="compute_Dir" Component_="compute" ManualDelete="false"/>
+    <ROW Directory_="imageformats_Dir" Component_="imageformats" ManualDelete="false"/>
+    <ROW Directory_="platforms_Dir" Component_="platforms" ManualDelete="false"/>
+    <ROW Directory_="license1_Dir" Component_="license_2" ManualDelete="false"/>
+    <ROW Directory_="astc_Dir" Component_="astc" ManualDelete="false"/>
+    <ROW Directory_="directxtex_Dir" Component_="directxtex" ManualDelete="false"/>
+    <ROW Directory_="openexr_Dir" Component_="openexr" ManualDelete="false"/>
+    <ROW Directory_="opencv_Dir" Component_="opencv" ManualDelete="false"/>
+    <ROW Directory_="etcpack_Dir" Component_="etcpack" ManualDelete="false"/>
+    <ROW Directory_="imgui_Dir" Component_="imgui" ManualDelete="false"/>
+    <ROW Directory_="json_Dir" Component_="json" ManualDelete="false"/>
+    <ROW Directory_="Compressonator_Dir" Component_="Compressonator" ManualDelete="true"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiCustActComponent">
     <ROW Action="AI_AiRemoveFilesCommit" Type="11777" Source="ResourceCleaner.dll" Target="OnAiRemoveFilesCommit" WithoutSeq="true"/>
@@ -326,8 +361,8 @@
     <ROW Action="AI_SETMIXINSTLOCATION" Type="1" Source="aicustact.dll" Target="MixedAllUsersInstallLocation"/>
     <ROW Action="AI_SHOW_LOG" Type="65" Source="aicustact.dll" Target="LaunchLogFile" WithoutSeq="true"/>
     <ROW Action="AI_STORE_LOCATION" Type="51" Source="ARPINSTALLLOCATION" Target="[APPDIR]"/>
-    <ROW Action="SET_APPDIR" Type="307" Source="APPDIR" Target="[ProgramFilesFolder][Manufacturer]\[ProductName]" MultiBuildTarget="DefaultBuild:[WindowsVolume]Compressonator_[ProductVersion]"/>
-    <ROW Action="SET_SHORTCUTDIR" Type="307" Source="SHORTCUTDIR" Target="[ProgramMenuFolder][ProductName]" MultiBuildTarget="DefaultBuild:[ProgramMenuFolder]\Compressonator_[ProductVersion]"/>
+    <ROW Action="SET_APPDIR" Type="307" Source="APPDIR" Target="[ProgramFilesFolder][Manufacturer]\[ProductName]" MultiBuildTarget="DefaultBuild:[ProgramFiles64Folder][Manufacturer]\Compressonator_[ProductVersion]"/>
+    <ROW Action="SET_SHORTCUTDIR" Type="307" Source="SHORTCUTDIR" Target="[ProgramMenuFolder][ProductName]"/>
     <ROW Action="SET_TARGETDIR_TO_APPDIR" Type="51" Source="TARGETDIR" Target="[APPDIR]"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiEnvComponent">
@@ -375,6 +410,25 @@
     <ROW Condition="(VersionNT64 OR ((VersionNT &lt;&gt; 501) OR (ServicePackLevel = 3))) AND ((VersionNT &lt;&gt; 502) OR (ServicePackLevel = 2))" Description="[ProductName] cannot be installed on [WindowsTypeNT5XDisplay]." DescriptionLocId="AI.LaunchCondition.NoNT5X" IsPredefined="true" Builds="DefaultBuild"/>
     <ROW Condition="Privileged" Description="[ProductName] requires administrative privileges to install." DescriptionLocId="AI.LaunchCondition.Privileged" IsPredefined="true" Builds="DefaultBuild"/>
     <ROW Condition="VersionNT" Description="[ProductName] cannot be installed on [WindowsType9XDisplay]." DescriptionLocId="AI.LaunchCondition.No9X" IsPredefined="true" Builds="DefaultBuild"/>
+  </COMPONENT>
+  <COMPONENT cid="caphyon.advinst.msicomp.MsiLockPermComponent">
+    <ROW LockObject="bin_1_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="bin_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="html_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="images_Dir" Table="CreateFolder" User="Everyone" Permission="1610809791" Flags="0"/>
+    <ROW LockObject="plugins_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="compute_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="imageformats_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="platforms_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="license1_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="astc_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="directxtex_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="openexr_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="opencv_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="etcpack_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="imgui_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="json_Dir" Table="CreateFolder" User="Everyone" Permission="537002153" Flags="0"/>
+    <ROW LockObject="Compressonator_Dir" Table="CreateFolder" User="Everyone" Permission="1610809791" Flags="0"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiProgIdComponent">
     <ROW ProgId="[|Manufacturer].[|ProductName]"/>

@@ -28,6 +28,8 @@
 #pragma warning(disable : 4996)  // 'fopen': This function or variable may be unsafe.
 #pragma warning(disable : 4100)  // unreferenced formal parameter
 #include "windows.h"
+#include <shlobj.h>
+#include <sddl.h>
 #include <stdio.h>
 #include <direct.h>
 #include <iostream>
@@ -35,11 +37,17 @@
 #include <string>
 #else
 #include <dirent.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <wordexp.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 
+#include <cstdlib>
 #include <fstream>
 
 // For dev work on older C++ code
@@ -62,6 +70,8 @@ namespace sfs = std::experimental::filesystem;
 #endif
 
 #include <algorithm>
+#include <cstdint>
+#include <cstdio>
 #include <sys/stat.h>
 
 std::string CMP_GetJustFileName(const std::string& filePath)
@@ -559,4 +569,497 @@ void CMP_ReplaceExt(std::string& s, const std::string& newExt)
     {
         s.replace(i + 1, newExt.length(), newExt);
     }
+}
+
+//---------------------------------------------------------------------
+// Install (read only) and per user (writable) locations
+//---------------------------------------------------------------------
+
+static char CMP_NativeSeparator()
+{
+#ifdef _WIN32
+    return '\\';
+#else
+    return '/';
+#endif
+}
+
+// Length of the root prefix of path ("C:\", "\\", "/", ...), or 0 when the path is relative.
+static std::size_t CMP_RootPrefixLength(const std::string& path)
+{
+    if (path.length() >= 2 && path[1] == ':')
+        return (path.length() > 2 && (path[2] == '/' || path[2] == '\\')) ? 3 : 2;
+
+    if (!path.empty() && (path[0] == '/' || path[0] == '\\'))
+    {
+        // UNC style "\\server\share" has no creatable component before the share.
+        if (path.length() > 1 && (path[1] == '/' || path[1] == '\\'))
+        {
+            std::size_t server = path.find_first_of(FILE_SPLIT_PATH, 2);
+            if (server == std::string::npos)
+                return path.length();
+            std::size_t share = path.find_first_of(FILE_SPLIT_PATH, server + 1);
+            return (share == std::string::npos) ? path.length() : share + 1;
+        }
+        return 1;
+    }
+
+    return 0;
+}
+
+bool CMP_CreateDirTree(const std::string& directoryName)
+{
+    if (directoryName.empty())
+        return false;
+
+    if (CMP_DirExists(directoryName))
+        return true;
+
+    // Create each missing parent before the leaf, starting past any root prefix so the
+    // root itself is never passed to mkdir. Relative paths have no prefix to skip.
+    std::size_t pos = directoryName.find_first_of(FILE_SPLIT_PATH, CMP_RootPrefixLength(directoryName));
+
+    while (pos != std::string::npos)
+    {
+        std::string parent = directoryName.substr(0, pos);
+        if (!parent.empty() && !CMP_DirExists(parent))
+        {
+            if (!CMP_CreateDir(parent))
+                return false;
+        }
+        pos = directoryName.find_first_of(FILE_SPLIT_PATH, pos + 1);
+    }
+
+    if (!CMP_CreateDir(directoryName))
+        return CMP_DirExists(directoryName);
+
+    return true;
+}
+
+#ifdef _WIN32
+// Narrow paths reach this file in two different encodings: UTF-8 from Qt (QString::toStdString())
+// and the active ANSI code page from the CLI's narrow main(argv) and getenv(). Decoding with the
+// wrong one turns a valid non-ASCII path into a different (usually nonexistent) path. Strict UTF-8
+// is tried first and CP_ACP is used only when the bytes are not valid UTF-8, which is unambiguous
+// for both sources: pure ASCII decodes identically either way, and ANSI text carrying non-ASCII
+// bytes is almost never also well-formed UTF-8.
+static bool CMP_NarrowPathToWide(const std::string& path, std::wstring& wide)
+{
+    for (UINT codePage : {CP_UTF8, CP_ACP})
+    {
+        const DWORD flags  = (codePage == CP_UTF8) ? MB_ERR_INVALID_CHARS : 0;
+        const int   length = MultiByteToWideChar(codePage, flags, path.c_str(), -1, NULL, 0);
+        if (length <= 0)
+            continue;
+
+        // length counts the terminating null, which MultiByteToWideChar writes, so the buffer
+        // has to hold it during the call and is trimmed afterwards.
+        wide.assign(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(codePage, flags, path.c_str(), -1, &wide[0], length) > 0)
+        {
+            wide.resize(static_cast<size_t>(length) - 1);
+            return true;
+        }
+    }
+
+    return false;
+}
+#endif
+
+bool CMP_IsDirWritable(const std::string& directory)
+{
+    if (directory.empty())
+        return false;
+
+#ifdef _WIN32
+    // The *A Win32 APIs (and CMP_DirExists' std::filesystem narrow conversion) decode using the
+    // ANSI code page only, so a UTF-8 path from the GUI would be mis-decoded and a valid, writable
+    // directory reported as inaccessible. Convert once and use the wide APIs throughout instead.
+    std::wstring wideDir;
+    if (!CMP_NarrowPathToWide(directory, wideDir))
+        return false;
+
+    DWORD dwAttrib = GetFileAttributesW(wideDir.c_str());
+    if (dwAttrib == INVALID_FILE_ATTRIBUTES || !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY))
+        return false;
+
+    // _access() reports only the read-only attribute for directories and ignores the
+    // ACL, so probe for real write access by creating a file. FILE_FLAG_DELETE_ON_CLOSE
+    // removes the probe even if this process is killed before CloseHandle().
+    std::wstring probePath = wideDir;
+    if (!probePath.empty() && probePath.back() != L'\\' && probePath.back() != L'/')
+        probePath += L'\\';
+    probePath += L"cmp_wtest_" + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(GetTickCount()) + L".tmp";
+
+    HANDLE probe = CreateFileW(probePath.c_str(),
+                               GENERIC_WRITE,
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               NULL,
+                               CREATE_NEW,  // never truncate a pre-existing file on an unlucky name collision
+                               FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE,
+                               NULL);
+    if (probe == INVALID_HANDLE_VALUE)
+        return false;
+
+    CloseHandle(probe);
+    return true;
+#else
+    if (!CMP_DirExists(directory))
+        return false;
+
+    return access(directory.c_str(), W_OK) == 0;
+#endif
+}
+
+// Creates filePath only if nothing already exists at that name, so a pre-planted file,
+// symlink or hardlink at a predictable temp path cannot be written through or later deleted.
+// This only reserves the name at call time: the handle is closed before any caller reopens
+// filePath by path, so a shared/world-writable directory still allows another process to
+// unlink and replace it in that window. Callers must pass a path inside a private directory
+// (not writable by other users, e.g. a per-user app-data directory) to actually close the race.
+bool CMP_CreateFileExclusive(const std::string& filePath)
+{
+    if (filePath.empty())
+        return false;
+
+#ifdef _WIN32
+    // filePath reaches here in either UTF-8 (GUI, via ProcessCMDLine) or the active ANSI code
+    // page (CLI argv) -- see CMP_NarrowPathToWide's comment. CreateFileA alone would mis-decode
+    // whichever caller doesn't match the active code page, most often just failing outright on
+    // a non-ASCII path (ERROR_PATH_NOT_FOUND) rather than creating the intended file.
+    std::wstring wideFilePath;
+    if (!CMP_NarrowPathToWide(filePath, wideFilePath))
+        return false;
+
+    HANDLE handle =
+        CreateFileW(wideFilePath.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (handle == INVALID_HANDLE_VALUE)
+        return false;
+
+    CloseHandle(handle);
+    return true;
+#else
+    int fd = open(filePath.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+    if (fd < 0)
+        return false;
+
+    close(fd);
+    return true;
+#endif
+}
+
+std::string CMP_CreatePrivateTempDirectory()
+{
+#ifdef _WIN32
+    PWSTR appData = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &appData)))
+        return {};
+    std::wstring directory(appData);
+    CoTaskMemFree(appData);
+
+    GUID    identifier = {};
+    wchar_t suffix[40] = {};
+    if (FAILED(CoCreateGuid(&identifier)) || StringFromGUID2(identifier, suffix, 40) == 0)
+        return {};
+    directory += L"\\cmp_transcode_";
+    directory += suffix;
+
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token))
+        return {};
+    DWORD tokenSize = 0;
+    GetTokenInformation(token, TokenUser, nullptr, 0, &tokenSize);
+    std::vector<unsigned char> tokenData(tokenSize);
+    const bool                 haveUser = GetTokenInformation(token, TokenUser, tokenData.data(), tokenSize, &tokenSize) != FALSE;
+    CloseHandle(token);
+    if (!haveUser)
+        return {};
+
+    LPWSTR userSid = nullptr;
+    if (!ConvertSidToStringSidW(reinterpret_cast<TOKEN_USER*>(tokenData.data())->User.Sid, &userSid))
+        return {};
+    const std::wstring descriptor = std::wstring(L"O:") + userSid + L"D:P(A;OICI;FA;;;" + userSid + L")";
+    LocalFree(userSid);
+    PSECURITY_DESCRIPTOR security = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(descriptor.c_str(), SDDL_REVISION_1, &security, nullptr))
+        return {};
+    SECURITY_ATTRIBUTES attributes = {sizeof(SECURITY_ATTRIBUTES), security, FALSE};
+    const bool          created    = CreateDirectoryW(directory.c_str(), &attributes) != FALSE;
+    LocalFree(security);
+    if (!created)
+        return {};
+
+    const int   length = WideCharToMultiByte(CP_UTF8, 0, directory.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string result(static_cast<size_t>(length), '\0');
+    if (length <= 1 || !WideCharToMultiByte(CP_UTF8, 0, directory.c_str(), -1, &result[0], length, nullptr, nullptr))
+    {
+        RemoveDirectoryW(directory.c_str());
+        return {};
+    }
+    result.pop_back();
+    return result;
+#else
+    std::string directory = "/tmp/cmp_transcode_XXXXXX";
+    if (!mkdtemp(&directory[0]))
+        return {};
+    return directory;
+#endif
+}
+
+bool CMP_RemovePath(const std::string& path)
+{
+    if (path.empty())
+        return false;
+#ifdef _WIN32
+    std::wstring widePath;
+    if (!CMP_NarrowPathToWide(path, widePath))
+        return false;
+    return DeleteFileW(widePath.c_str()) != FALSE || RemoveDirectoryW(widePath.c_str()) != FALSE;
+#else
+    return unlink(path.c_str()) == 0 || rmdir(path.c_str()) == 0;
+#endif
+}
+
+static std::string CMP_QueryExecutableDir()
+{
+    std::string executableDir;
+
+#ifdef _WIN32
+    char  modulePath[MAX_PATH] = {0};
+    DWORD length               = GetModuleFileNameA(NULL, modulePath, MAX_PATH);
+    if (length > 0 && length < MAX_PATH)
+        executableDir = CMP_GetPath(std::string(modulePath, length));
+#elif defined(__APPLE__)
+    char     modulePath[4096] = {0};
+    uint32_t size             = sizeof(modulePath);
+    if (_NSGetExecutablePath(modulePath, &size) == 0)
+        executableDir = CMP_GetPath(std::string(modulePath));
+#else
+    char    modulePath[4096] = {0};
+    ssize_t length           = readlink("/proc/self/exe", modulePath, sizeof(modulePath) - 1);
+    if (length > 0)
+        executableDir = CMP_GetPath(std::string(modulePath, length));
+#endif
+
+    return executableDir;
+}
+
+std::string CMP_GetExecutableDir()
+{
+    // Initialised once, under the compiler's guard: the GPU backends resolve install
+    // paths from more than one thread and a lazy assignment here would be a data race.
+    static const std::string executableDir = CMP_QueryExecutableDir();
+    return executableDir;
+}
+
+std::string CMP_ResolveInstallPath(const std::string& relativePath)
+{
+    if (relativePath.empty())
+        return relativePath;
+
+    // Already absolute. A bare "C:foo" is drive-relative, not absolute, so also require the
+    // separator after the drive letter.
+    if (relativePath[0] == '/' || relativePath[0] == '\\' ||
+        (relativePath.length() > 2 && relativePath[1] == ':' && (relativePath[2] == '/' || relativePath[2] == '\\')))
+        return relativePath;
+
+    std::string trimmed = relativePath;
+    while (trimmed.length() > 1 && trimmed[0] == '.' && (trimmed[1] == '/' || trimmed[1] == '\\'))
+        trimmed = trimmed.substr(2);
+
+    const std::string executableDir = CMP_GetExecutableDir();
+    if (executableDir.empty())
+        return relativePath;
+
+    std::string resolved = executableDir + CMP_NativeSeparator() + trimmed;
+    if (CMP_FileExists(resolved) || CMP_DirExists(resolved))
+        return resolved;
+
+    // Keep the original path so existing working-directory based layouts still work.
+    return relativePath;
+}
+
+std::string CMP_GetSampleDataDir()
+{
+    const char               separator = CMP_NativeSeparator();
+    std::vector<std::string> candidates;
+    const std::string        executableDir = CMP_GetExecutableDir();
+
+#ifdef _WIN32
+    PWSTR programData = NULL;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramData, KF_FLAG_DEFAULT, NULL, &programData)) && programData != NULL)
+    {
+        const int length = WideCharToMultiByte(CP_UTF8, 0, programData, -1, NULL, 0, NULL, NULL);
+        if (length > 1)
+        {
+            std::string utf8(static_cast<size_t>(length), '\0');
+            WideCharToMultiByte(CP_UTF8, 0, programData, -1, &utf8[0], length, NULL, NULL);
+            utf8.resize(static_cast<size_t>(length) - 1);
+            candidates.push_back(utf8 + separator + CMP_USER_DATA_VENDOR_DIR + separator + CMP_USER_DATA_PRODUCT_DIR);
+        }
+    }
+    CoTaskMemFree(programData);
+#elif defined(__APPLE__)
+    if (!executableDir.empty())
+        candidates.push_back(executableDir + "/../Resources");
+#else
+    candidates.push_back("/usr/share/compressonator");
+    candidates.push_back("/usr/local/share/compressonator");
+    if (!executableDir.empty())
+        candidates.push_back(executableDir + "/share/compressonator");
+#endif
+
+    if (!executableDir.empty())
+        candidates.push_back(executableDir);
+
+    for (const std::string& candidate : candidates)
+    {
+        if (CMP_DirExists(candidate + separator + "images"))
+            return candidate;
+    }
+
+    return "";
+}
+
+static std::string CMP_GetUserRootDir(const char* leafDir)
+{
+    std::string root;
+
+#ifdef _WIN32
+    const char* localAppData = getenv("LOCALAPPDATA");
+    if (localAppData == NULL || localAppData[0] == '\0')
+        localAppData = getenv("APPDATA");
+    if (localAppData == NULL || localAppData[0] == '\0')
+        return "";
+    root = localAppData;
+#elif defined(__APPLE__)
+    const char* home = getenv("HOME");
+    if (home == NULL || home[0] == '\0')
+        return "";
+    root = std::string(home) + "/Library/Application Support";
+#else
+    const char* dataHome = getenv("XDG_DATA_HOME");
+    if (dataHome != NULL && dataHome[0] != '\0')
+        root = dataHome;
+    else
+    {
+        const char* home = getenv("HOME");
+        if (home == NULL || home[0] == '\0')
+            return "";
+        root = std::string(home) + "/.local/share";
+    }
+#endif
+
+    const char separator = CMP_NativeSeparator();
+
+    root += separator;
+    root += CMP_USER_DATA_VENDOR_DIR;
+    root += separator;
+    root += CMP_USER_DATA_PRODUCT_DIR;
+
+    if (leafDir != NULL && leafDir[0] != '\0')
+    {
+        root += separator;
+        root += leafDir;
+    }
+
+    // CMP_IsDirWritable() reports non-existent directories as unwritable, so on a first run
+    // (root not created yet) checking writability before creating the tree would always fail
+    // and permanently disable the user data dir. Create the tree first, then verify it.
+    if (!CMP_CreateDirTree(root) || !CMP_IsDirWritable(root))
+        return "";
+
+    return root;
+}
+
+static std::string CMP_AppendUserSubDir(const std::string& root, const std::string& subDir)
+{
+    if (root.empty() || subDir.empty())
+        return root;
+
+    std::string path = root;
+    path += CMP_NativeSeparator();
+    path += subDir;
+
+    if (!CMP_CreateDirTree(path))
+        return root;
+
+    return path;
+}
+
+std::string CMP_GetUserDataDir(const std::string& subDir)
+{
+    return CMP_AppendUserSubDir(CMP_GetUserRootDir(NULL), subDir);
+}
+
+std::string CMP_GetUserCacheDir(const std::string& subDir)
+{
+    return CMP_AppendUserSubDir(CMP_GetUserRootDir("cache"), subDir);
+}
+
+std::string CMP_GetUserResultsDir()
+{
+    const std::string path = CMP_GetUserDataDir("results");
+
+    // CMP_CreateDirTree (via CMP_GetUserDataDir) succeeds on an existing directory whose ACL
+    // denies file creation, so probe for write access too rather than handing back a fallback
+    // the caller cannot write to.
+    if (path.empty() || !CMP_IsDirWritable(path))
+        return "";
+
+    return path;
+}
+
+// FNV-1a over the whole source path. The shader cache is a single flat folder, so the file
+// name on its own would let two same-named sources in different folders share one entry.
+static std::string CMP_PathHashPrefix(const std::string& path)
+{
+    uint32_t hash = 2166136261u;
+
+    for (std::size_t i = 0; i < path.length(); ++i)
+    {
+        unsigned char character = (unsigned char)path[i];
+#ifdef _WIN32
+        // Windows paths are case insensitive and accept either separator, so the same file
+        // spelled differently must still hash to the same cache entry.
+        if (character >= 'A' && character <= 'Z')
+            character = (unsigned char)(character - 'A' + 'a');
+        if (character == '/')
+            character = '\\';
+#endif
+        hash ^= character;
+        hash *= 16777619u;
+    }
+
+    char prefix[16] = {0};
+    snprintf(prefix, sizeof(prefix), "%08x_", hash);
+    return prefix;
+}
+
+std::string CMP_GetShaderCacheFilePath(const std::string& sourceFilePath, const std::string& suffix)
+{
+    const std::string cacheDir = CMP_GetUserCacheDir("shaders");
+
+    // No writable per user location: fall back to the legacy behaviour of keeping
+    // the binary next to its source so portable/dev builds keep working.
+    if (cacheDir.empty())
+        return sourceFilePath + suffix;
+
+    return cacheDir + CMP_NativeSeparator() + CMP_PathHashPrefix(sourceFilePath) + CMP_GetFileName(sourceFilePath) + suffix;
+}
+
+bool CMP_ShaderCacheIsStale(const std::string& sourceFilePath, const std::string& cacheFilePath)
+{
+    struct stat cacheAttrib;
+    if (stat(cacheFilePath.c_str(), &cacheAttrib) != 0)
+        return true;
+
+    struct stat sourceAttrib;
+    if (stat(sourceFilePath.c_str(), &sourceAttrib) != 0)
+        return true;
+
+    // st_mtime has one second resolution, so a source edited in the same second the cache was
+    // written is indistinguishable from one edited just before it: rebuild rather than risk
+    // running a stale kernel.
+    return sourceAttrib.st_mtime >= cacheAttrib.st_mtime;
 }

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <PROJECT>
-  <Image File="./Images/Balls.exr">
+  <Image File="$(CMP_SAMPLES)/images/balls.exr">
     <Compression Setting="Balls_1" Enabled="False">
-      <Destination>./Images/Balls_1.DDS</Destination>
+      <Destination>$(CMP_SAMPLES)/images/Balls_1.DDS</Destination>
       <fd>BC6H</fd>
     </Compression>
   </Image>

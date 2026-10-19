@@ -286,16 +286,25 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
     CMP_Texture srcTextureCopy = *pSourceTexture;
 
 #ifdef ENABLE_MAKE_COMPATIBLE_API
-    FloatParams     floatParams(pOptions);
-    ConvertedBuffer compatibleBuffer = CreateCompatibleBuffer(pDestTexture->format, &srcTextureCopy, &floatParams);
-    srcTextureCopy.format            = compatibleBuffer.format;
-    srcTextureCopy.pData             = (CMP_BYTE*)compatibleBuffer.data;
-    srcTextureCopy.dwDataSize        = compatibleBuffer.dataSize;
-#endif
-
     tc_err = CheckTexture(pDestTexture, false);
     if (tc_err != CMP_OK)
         return tc_err;
+
+    FloatParams     floatParams(pOptions);
+    ConvertedBuffer compatibleBuffer = CreateCompatibleBuffer(pDestTexture->format, &srcTextureCopy, &floatParams);
+
+    // A failed conversion returns an empty buffer; passing its null data on would crash the codec.
+    if (compatibleBuffer.data == NULL)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+    srcTextureCopy.format     = compatibleBuffer.format;
+    srcTextureCopy.pData      = (CMP_BYTE*)compatibleBuffer.data;
+    srcTextureCopy.dwDataSize = compatibleBuffer.dataSize;
+#else
+    tc_err = CheckTexture(pDestTexture, false);
+    if (tc_err != CMP_OK)
+        return tc_err;
+#endif
 
     if (srcTextureCopy.dwWidth != pDestTexture->dwWidth || srcTextureCopy.dwHeight != pDestTexture->dwHeight)
         return CMP_ERR_SIZE_MISMATCH;

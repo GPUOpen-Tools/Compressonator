@@ -3,6 +3,37 @@ Revision History
 
 For the latest documentation, please refer to:  http://compressonator.readthedocs.io/en/latest/
 
+V4.6
+~~~~
+October 2026
+
+This release introduces several security-hardening improvements. For complete information,
+please refer to the official AMD Security Bulletin:
+https://www.amd.com/en/resources/product-security/bulletin/amd-sb-6032.html
+
+**Behavioral Changes**
+
+- At startup, CompressonatorCLI and CompressonatorGUI now verify that the accompanying DLLs
+  are AMD-signed. Release builds will not run if this verification fails.
+- The installer now secures the installation directory with restrictive ACL permissions. The
+  default installation location has also been updated to align with platform security best
+  practices:
+
+    - Windows: the system's Program Files folder
+    - Linux (.deb): ``/usr/local/compressonator``
+
+- Since the installation directory is no longer expected to be writable, project results and
+  compiled DirectX/OpenCL shader caches are now stored per user rather than alongside the
+  application:
+
+    - Windows: ``%LOCALAPPDATA%\GPUOpen.com\Compressonator``
+    - Linux: ``$XDG_DATA_HOME`` or ``~/.local/share/GPUOpen.com/Compressonator``
+
+- Texture, buffer, and file-parsing code in the DDS, TGA, and BC1-BC7 codecs has been hardened
+  with additional input validation, overflow checks, and memory-management improvements to
+  help reduce potential vulnerabilities.
+
+
 V4.5
 ~~~~
 January 2024

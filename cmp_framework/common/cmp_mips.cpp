@@ -754,6 +754,13 @@ CMP_ERROR CMP_API CMP_MipSetAnlaysis(CMP_MipSet* src1, CMP_MipSet* src2, CMP_INT
     src2Buffer.dataSize = pCurMipLevel2->m_dwLinearSize;
     src2Buffer.format   = src2->m_format;
 
+    // Checked before the conversion branch: a matching-format pair skips that branch entirely,
+    // so null mip data would otherwise reach CMP_calcMSE_PSNR* below.
+    if (src1Buffer.data == NULL)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+    if (src2Buffer.data == NULL)
+        return CMP_ERR_INVALID_DEST_TEXTURE;
+
     // some conversion might be needed
     if (src1ChannelFormat != src2ChannelFormat)
     {
@@ -768,6 +775,13 @@ CMP_ERROR CMP_API CMP_MipSetAnlaysis(CMP_MipSet* src1, CMP_MipSet* src2, CMP_INT
 
         src1ChannelFormat = GetChannelFormat(src1Buffer.format);
         src2ChannelFormat = GetChannelFormat(src2Buffer.format);
+
+        // A failed conversion returns an empty buffer, and its unknown format resolves to
+        // CF_8bit below, so the null data would reach CMP_calcMSE_PSNRb.
+        if (src1Buffer.data == NULL)
+            return CMP_ERR_INVALID_SOURCE_TEXTURE;
+        if (src2Buffer.data == NULL)
+            return CMP_ERR_INVALID_DEST_TEXTURE;
     }
 
     // processed only if both codecs have the same channel formats
@@ -1025,6 +1039,11 @@ bool CMP_CMIPS::AllocateMipLevelData(CMP_MipLevel* pMipLevel, int nWidth, int nH
     assert(pMipLevel);
     assert(nWidth > 0 && nHeight > 0);
 
+    // The assert above is compiled out in release builds, where a negative width such as INT_MIN
+    // makes CMP_PAD_BYTE wrap to zero and lets this function report success with a zero-byte mip.
+    if (!pMipLevel || nWidth <= 0 || nHeight <= 0)
+        return false;
+
     CMP_DWORD dwBitsPerPixel;
     switch (channelFormat)
     {
@@ -1072,7 +1091,16 @@ bool CMP_CMIPS::AllocateMipLevelData(CMP_MipLevel* pMipLevel, int nWidth, int nH
         return false;
     }
 
-    CMP_DWORD dwPitch         = CMP_PAD_BYTE(nWidth, dwBitsPerPixel);
+    // prevent integer overflow in bits-per-pixel * width (inside CMP_PAD_BYTE)
+    if (nWidth > 0 && dwBitsPerPixel > 0 && (CMP_DWORD)nWidth > (UINT32_MAX - 7) / dwBitsPerPixel)
+        return false;
+
+    CMP_DWORD dwPitch = CMP_PAD_BYTE(nWidth, dwBitsPerPixel);
+
+    // prevent integer overflow in pitch * height
+    if (dwPitch > 0 && (CMP_DWORD)nHeight > UINT32_MAX / dwPitch)
+        return false;
+
     pMipLevel->m_nWidth       = nWidth;
     pMipLevel->m_nHeight      = nHeight;
     pMipLevel->m_dwLinearSize = dwPitch * nHeight;
@@ -1160,6 +1188,11 @@ void CMP_CMIPS::FreeMipSet(CMP_MipSet* pMipSet)
             pMipSet->m_nMaxMipLevels  = 0;
             pMipSet->m_nMipLevels     = 0;
         }
+
+        // pData normally aliases mip level 0, which was just freed: clear it here so callers
+        // cannot be left holding a dangling pointer.
+        pMipSet->pData      = NULL;
+        pMipSet->dwDataSize = 0;
     }
 }
 

@@ -37,15 +37,15 @@ namespace CMP_Compute_Base
 class RenderWindow
 {
 public:
-    RenderWindow(){};
-    virtual ~RenderWindow(){};
+    RenderWindow() {};
+    virtual ~RenderWindow() {};
 };
 
 class ComputeBase : public RenderWindow
 {
 public:
-    ComputeBase(){};
-    virtual ~ComputeBase(){};
+    ComputeBase() {};
+    virtual ~ComputeBase() {};
 
     virtual CMP_ERROR   Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback) = 0;
     virtual void        SetComputeOptions(ComputeOptions* options)                                                             = 0;
@@ -61,6 +61,8 @@ private:
 }  // namespace CMP_Compute_Base
 
 const CMP_CHAR* GetEncodeWithDesc(CMP_Compute_type nFormat);
-bool            cmp_recompile_shader(std::string m_sourceShaderFile);
+
+// True when compiledShaderFile is missing or older than sourceShaderFile.
+bool cmp_recompile_shader(const std::string& sourceShaderFile, const std::string& compiledShaderFile);
 
 #endif  // !COMPUTE_BASE_H

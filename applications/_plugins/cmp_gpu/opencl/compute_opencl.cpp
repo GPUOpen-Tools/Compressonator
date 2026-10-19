@@ -22,6 +22,12 @@
 //==============================================================================
 
 #include "copencl.h"
+#include "cmp_fileio.h"
+
+#include <cctype>
+#include <cstring>
+#include <new>
+#include <string>
 
 #ifdef USE_CPU_PERFORMANCE_COUNTERS
 #include "cpu_timing.h"  // can use CPU timing but pref is to use GPU counters
@@ -298,6 +304,7 @@ void COpenCL::Init()
     ocl_time_device             = 0;
     m_deviceName                = "";
     m_version                   = "";
+    m_driverVersion             = "";
     m_maxUCores                 = 12;
 
     //-------------------------
@@ -312,7 +319,19 @@ void COpenCL::Init()
     // single and double precision denormalized numbers may be flushed to zero
     strncat_s(m_compile_options, cmp_opt_size, "-cl-denorms-are-zero ", _TRUNCATE);
 
-    // Looks for addtional include file in this sub-folder
+    // Looks for additional include file in this sub-folder. The kernels ship with the
+    // application, so prefer the install directory over the current working directory.
+    const std::string kernelIncludeDir = CMP_ResolveInstallPath("./plugins/Compute");
+    if (!kernelIncludeDir.empty() && kernelIncludeDir != "./plugins/Compute")
+    {
+        // Appended as a single unit: truncating part way through the path would drop the
+        // closing quote and make every later kernel build fail with an opaque compiler error.
+        const std::string includeOption = "-I \"" + kernelIncludeDir + "\" ";
+        if ((strlen(m_compile_options) + includeOption.length()) < (size_t)cmp_opt_size)
+            strncat_s(m_compile_options, cmp_opt_size, includeOption.c_str(), _TRUNCATE);
+        else
+            PrintCL("Kernel include path is too long for the compiler options, using the working directory instead\n");
+    }
     strncat_s(m_compile_options, cmp_opt_size, "-I ./Plugins/Compute/ ", _TRUNCATE);
 
     // Use this to debug with CodeXL or other debuggers
@@ -331,19 +350,38 @@ COpenCL::COpenCL(ComputeOptions CLOptions)
 
 COpenCL::~COpenCL()
 {
+    // Objects must be released in reverse creation order, with the context last: its child
+    // objects hold implicit references that keep the context - and the driver's worker and
+    // JIT compiler threads - alive. Cleanup is also unconditional here; gating it on
+    // m_programRun leaked every object whenever an encode failed part way through, which
+    // left those driver threads running until DLL unload.
+    if (m_command_queue)
+        clFinish(m_command_queue);
+
 #ifdef ENABLE_SVM
     if (m_context && m_svmData)
+    {
         clSVMFree(m_context, m_svmData);
+        m_svmData = NULL;
+    }
 #endif
 
-    if (m_context)
-        clReleaseContext(m_context);
+    CleanUpKernelAndIOBuffers();
+    CleanUpProgramEncoder();
 
-    if (m_programRun)
+    // Hands back the resources held by the OpenCL JIT compiler at a controlled point,
+    // instead of leaving them for the driver to reclaim while the DLL is being unloaded.
+    if (m_platform_id)
+        clUnloadPlatformCompiler(m_platform_id);
+
+    if (m_context)
     {
-        CleanUpKernelAndIOBuffers();
-        CleanUpProgramEncoder();
+        clReleaseContext(m_context);
+        m_context = NULL;
     }
+
+    m_programRun   = false;
+    m_initDeviceOk = false;
 }
 
 void COpenCL::SetComputeOptions(ComputeOptions* CLOptions)
@@ -357,32 +395,58 @@ COpenCL::COpenCL(void* kerneloptions)
     Init();
 }
 
+// Handles are cleared as they are released so that both cleanup calls stay idempotent and
+// safe to call on a partially constructed device.
 void COpenCL::CleanUpProgramEncoder()
 {
     // Encoder Program & Buffer
     if (p_program.buffer)
+    {
         delete[] p_program.buffer;
+        p_program.buffer = NULL;
+    }
     if (m_program_encoder)
+    {
         clReleaseProgram(m_program_encoder);
+        m_program_encoder = NULL;
+    }
 }
 
 void COpenCL::CleanUpKernelAndIOBuffers()
 {
-    // Command Queues and Kernel functions
-    if (m_command_queue)
-        clReleaseCommandQueue(m_command_queue);
-    if (m_kernel)
-        clReleaseKernel(m_kernel);
-
     // IO Buffers
     if (m_Encoder_buffer)
+    {
         clReleaseMemObject(m_Encoder_buffer);
+        m_Encoder_buffer = NULL;
+    }
     if (m_Source_Info_buffer)
+    {
         clReleaseMemObject(m_Source_Info_buffer);
+        m_Source_Info_buffer = NULL;
+    }
     if (m_device_destination_buffer)
+    {
         clReleaseMemObject(m_device_destination_buffer);
+        m_device_destination_buffer = NULL;
+    }
     if (m_device_source_buffer)
+    {
         clReleaseMemObject(m_device_source_buffer);
+        m_device_source_buffer = NULL;
+    }
+
+    // Kernel and the queue that referenced the buffers above
+    if (m_kernel)
+    {
+        clReleaseKernel(m_kernel);
+        m_kernel = NULL;
+    }
+    if (m_command_queue)
+    {
+        clReleaseCommandQueue(m_command_queue);
+        m_command_queue = NULL;
+    }
 }
 
 bool COpenCL::GetPlatformID()
@@ -434,24 +498,28 @@ bool COpenCL::GetDeviceInfo()
     if (clGetDeviceInfo(m_device_id, CL_DEVICE_OPENCL_C_VERSION, sizeof(openclVersion), openclVersion, NULL) == CL_SUCCESS)
         m_version = openclVersion;
 
+    char driverVersion[256] = {0};
+    if (clGetDeviceInfo(m_device_id, CL_DRIVER_VERSION, sizeof(driverVersion), driverVersion, NULL) == CL_SUCCESS)
+        m_driverVersion = driverVersion;
+
     if (clGetDeviceInfo(m_device_id, CL_DEVICE_MAX_COMPUTE_UNITS, sizeof(m_maxUCores), &m_maxUCores, NULL) != CL_SUCCESS)
         m_maxUCores = 12;
 
-        // long long GlobalMem;
-        // clGetDeviceInfo(m_device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(long long), &GlobalMem, NULL);
-        // PrintCL("Device Global Mem: %I64d Bytes\n", GlobalMem);
-        //
-        // long long LocalMem;
-        // clGetDeviceInfo(m_device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(long long), &LocalMem, NULL);
-        // PrintCL("Device Local  Mem: %I64d Bytes\n", LocalMem);
-        //
-        // size_t MaxWorkGroupSize;
-        // clGetDeviceInfo(m_device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(int), &MaxWorkGroupSize, NULL);
-        // PrintCL("Max work Groups  :%ld\n", MaxWorkGroupSize);
-        //
-        // cl_ulong MaxConstDataSize;
-        // clGetDeviceInfo(m_device_id, CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE, sizeof(cl_ulong), &MaxConstDataSize, NULL);
-        // PrintCL("Max Const Data   : %ld Bytes\n", MaxConstDataSize);
+    // long long GlobalMem;
+    // clGetDeviceInfo(m_device_id, CL_DEVICE_GLOBAL_MEM_SIZE, sizeof(long long), &GlobalMem, NULL);
+    // PrintCL("Device Global Mem: %I64d Bytes\n", GlobalMem);
+    //
+    // long long LocalMem;
+    // clGetDeviceInfo(m_device_id, CL_DEVICE_LOCAL_MEM_SIZE, sizeof(long long), &LocalMem, NULL);
+    // PrintCL("Device Local  Mem: %I64d Bytes\n", LocalMem);
+    //
+    // size_t MaxWorkGroupSize;
+    // clGetDeviceInfo(m_device_id, CL_DEVICE_MAX_WORK_GROUP_SIZE, sizeof(int), &MaxWorkGroupSize, NULL);
+    // PrintCL("Max work Groups  :%ld\n", MaxWorkGroupSize);
+    //
+    // cl_ulong MaxConstDataSize;
+    // clGetDeviceInfo(m_device_id, CL_DEVICE_MAX_CONSTANT_BUFFER_SIZE, sizeof(cl_ulong), &MaxConstDataSize, NULL);
+    // PrintCL("Max Const Data   : %ld Bytes\n", MaxConstDataSize);
 
 #ifdef ENABLE_SVM
     // SVM Support
@@ -493,6 +561,22 @@ long COpenCL::file_size(FILE* p_file)
     return program_size;
 }
 
+std::string COpenCL::BinaryCacheFilePath() const
+{
+    // A cached binary is only valid for the device and driver that produced it, so both are
+    // part of the name: a GPU swap or driver upgrade then misses the cache instead of feeding
+    // stale machine code to clCreateProgramWithBinary().
+    std::string deviceKey = m_deviceName + "_" + m_driverVersion;
+    for (std::size_t i = 0; i < deviceKey.length(); ++i)
+    {
+        const char character = deviceKey[i];
+        if (!isalnum((unsigned char)character) && character != '.' && character != '-')
+            deviceKey[i] = '_';
+    }
+
+    return CMP_GetShaderCacheFilePath(m_source_file, "." + deviceKey + ".cmp");
+}
+
 bool COpenCL::load_file()
 {
 #ifdef _DEBUG
@@ -503,29 +587,27 @@ bool COpenCL::load_file()
 
     m_isBinary = false;
 
+    // Compiled kernels are cached under the user's application data folder: the
+    // install directory is read only for standard users.
+    const std::string binaryCacheFile = BinaryCacheFilePath();
+
     if (!m_force_rebuild)
     {
         //===========================
         // Try loading the Binary file
         //===========================
-        FILE*       p_file_bin = NULL;
-        std::string tmp        = m_source_file;
-        bool        rebuild    = false;
-
-#ifdef _WIN32
-        // Check build configuration of the shader, has it been modified since last use
-        rebuild = cmp_recompile_shader(m_source_file);
-#endif
+        FILE* p_file_bin = NULL;
+        bool  rebuild    = cmp_recompile_shader(m_source_file, binaryCacheFile);
 
         if (!rebuild)
         {
 #ifdef _WIN32
-            fopen_result = fopen_s(&p_file_bin, tmp.append(".cmp").c_str(), "rb");
+            fopen_result = fopen_s(&p_file_bin, binaryCacheFile.c_str(), "rb");
             if (fopen_result != 0)
                 rebuild = true;
 #else
-            p_file_bin = fopen(tmp.append(".cmp").c_str(), "rb");
-            if (p_file_bin)
+            p_file_bin = fopen(binaryCacheFile.c_str(), "rb");
+            if (p_file_bin == NULL)
                 rebuild = true;
 #endif
         }
@@ -533,50 +615,54 @@ bool COpenCL::load_file()
         // Found a .cmp file use it
         if (!rebuild)
         {
+            // The cache lives in a user writable folder, so a damaged or tampered entry is
+            // expected rather than exceptional: discard it and recompile from source instead
+            // of failing the encode outright.
             OpenCLBinary_Header BinFile_Header;
-            if (fread(&BinFile_Header, sizeof(OpenCLBinary_Header), 1, p_file_bin) != 1)
+            if (fread(&BinFile_Header, sizeof(OpenCLBinary_Header), 1, p_file_bin) != 1 || BinFile_Header.version != 1)
             {
                 fclose(p_file_bin);
-                PrintCL("Failed to read \"%s.cmp\" file header!\n", m_source_file.c_str());
-                return false;
+                p_file_bin = NULL;
+                PrintCL("Cached kernel \"%s\" is unusable, rebuilding from source\n", binaryCacheFile.c_str());
             }
-
-            if (BinFile_Header.version != 1)
+            else
             {
-                fclose(p_file_bin);
-                PrintCL("File \"%s.cmp\" is not compatible with current application!\n", m_source_file.c_str());
-                return false;
-            }
+                const long cachedSize = file_size(p_file_bin) - (long)sizeof(OpenCLBinary_Header);
 
-            // entry to this code is reserved for CRC checks
-            {
-                m_isBinary     = true;
-                m_program_size = file_size(p_file_bin) - sizeof(OpenCLBinary_Header);
-
-                if (m_program_size == 0)
+                if (cachedSize > 0)
                 {
-                    fclose(p_file_bin);
-                    PrintCL("Failed to read \"%s.cmp\" file size!\n", m_source_file.c_str());
-                    return false;
+                    unsigned char* cachedProgram = new (std::nothrow) unsigned char[cachedSize];
+
+                    if (cachedProgram != NULL)
+                    {
+                        // Reposition to bin data that is after header
+                        fseek(p_file_bin, sizeof(OpenCLBinary_Header), SEEK_SET);
+
+                        if (fread(cachedProgram, cachedSize, 1, p_file_bin) == 1)
+                        {
+                            // An unread buffer would leave the CRC at its seed, which GetCRC()
+                            // reports as 0 -- the value every pre-CRC cache header carries.
+                            CRC32 crc;
+                            crc.ProcessBuffer(cachedProgram, (int)cachedSize, 1);
+
+                            if (crc.GetCRC() == BinFile_Header.crc32)
+                            {
+                                fclose(p_file_bin);
+                                p_program.ubuffer = cachedProgram;
+                                m_program_size    = (size_t)cachedSize;
+                                m_isBinary        = true;
+                                return true;
+                            }
+                        }
+
+                        delete[] cachedProgram;
+                    }
                 }
 
-                // Allocate memory for the program.
-                p_program.ubuffer = new unsigned char[m_program_size];
-
-                // Reposition to bin data that is after header
-                fseek(p_file_bin, sizeof(OpenCLBinary_Header), SEEK_SET);
-
-                // Read the program in to memory.
-                if (fread(p_program.buffer, m_program_size, 1, p_file_bin) != 1)
-                {
-                    fclose(p_file_bin);
-                    PrintCL("Failed to read \"%s.cmp\" in to memory!\n", m_source_file.c_str());
-                    return false;
-                }
-
                 fclose(p_file_bin);
-                return true;
-            }  // reserved for CRC type checks
+                p_file_bin = NULL;
+                PrintCL("Cached kernel \"%s\" failed its integrity check, rebuilding from source\n", binaryCacheFile.c_str());
+            }
         }
     }  // !m_force_rebuild
 
@@ -662,17 +748,29 @@ bool COpenCL::Create_Program_File()
         result            = clGetProgramInfo(m_program_encoder, CL_PROGRAM_BINARIES, sizeof(p_binary), &p_binary, NULL);
 
         // Save the compiled code
-        FILE*   p_file       = NULL;
-        errno_t fopen_result = fopen_s(&p_file, m_source_file.append(".cmp").c_str(), "wb");
-        if (fopen_result == 0)
+        const std::string binaryCacheFile = BinaryCacheFilePath();
+        FILE*             p_file          = NULL;
+#ifdef _WIN32
+        errno_t fopen_result = fopen_s(&p_file, binaryCacheFile.c_str(), "wb");
+        if (fopen_result != 0)
+            p_file = NULL;
+#else
+        p_file = fopen(binaryCacheFile.c_str(), "wb");
+#endif
+        if (p_file)
         {
+            CRC32 crc;
+            crc.ProcessBuffer(p_binary, (int)compiled_size, 1);
+
             OpenCLBinary_Header BinFile_Header;
             BinFile_Header.version = 1;
-            BinFile_Header.crc32   = 0;
+            BinFile_Header.crc32   = crc.GetCRC();
             fwrite(&BinFile_Header, sizeof(OpenCLBinary_Header), 1, p_file);
             fwrite(p_binary, compiled_size, 1, p_file);
+            fclose(p_file);
         }
-        fclose(p_file);
+        else
+            PrintCL("Unable to cache the compiled kernel to \"%s\"\n", binaryCacheFile.c_str());
 
     }  // not precompiled code
     else

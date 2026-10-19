@@ -24,11 +24,11 @@
     <ROW Property="BannerBitmap" Value="banner" MultiBuildValue="DefaultBuild:AMDCompressTools.bmp" Type="1" MsiKey="BannerBitmap"/>
     <ROW Property="DialogBitmap" Value="dialog" MultiBuildValue="DefaultBuild:AMDCompress.bmp" Type="1" MsiKey="DialogBitmap"/>
     <ROW Property="Manufacturer" Value="GPUOpen.com"/>
-    <ROW Property="ProductCode" Value="1033:{FB88015A-B8A8-4908-8936-4D90AC16389C} " Type="16"/>
+    <ROW Property="ProductCode" Value="1033:{ED481E8F-78B3-4D31-A49F-0F09DCA4CA56} " Type="16"/>
     <ROW Property="ProductLanguage" Value="1033"/>
     <ROW Property="ProductName" Value="CompressonatorCore"/>
-    <ROW Property="ProductVersion" Value="4.5.0" Type="32"/>
-    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorCore_x64_4.1."/>
+    <ROW Property="ProductVersion" Value="4.6.0" Type="32"/>
+    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorCore_x64_4.6.0"/>
     <ROW Property="SecureCustomProperties" Value="OLDPRODUCTS;AI_NEWERPRODUCTFOUND;AI_SETUPEXEPATH;SETUPEXEDIR"/>
     <ROW Property="UpgradeCode" Value="{78D0379B-C01A-49C4-A8C7-A41904A35199}"/>
     <ROW Property="WindowsType9X" MultiBuildValue="DefaultBuild:Windows 9x/ME" ValueLocId="-"/>
@@ -55,24 +55,24 @@
     <ROW Directory="x86_Dir" Directory_Parent="VS2015_Dir" DefaultDir="x86" DirectoryOptions="3"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiCompsComponent">
-    <ROW Component="AI_CustomARPName" ComponentId="{789B0E55-01F5-46BE-9484-AF3854411B0A}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
-    <ROW Component="AI_DisableModify" ComponentId="{502A1A34-6C7C-4378-810F-FCFCDECFA528}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
-    <ROW Component="AI_ExePath" ComponentId="{885DA806-1F87-4E4E-80D0-FBB1617F1C94}" Directory_="APPDIR" Attributes="260" KeyPath="AI_ExePath"/>
-    <ROW Component="CMP_Core_MD_DLL.dll" ComponentId="{55C284C3-DD84-4DF9-8003-7C88AA2E1BF3}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MD_DLL.dll"/>
-    <ROW Component="CMP_Core_MD_DLL.dll_1" ComponentId="{863D6575-A42F-4038-901F-0B7C5834C642}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MD_DLL.dll_1"/>
-    <ROW Component="CMP_Core_MDd_DLL.dll" ComponentId="{C3AB56B0-ABAD-4F32-ACCC-521A051D607C}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MDd_DLL.dll"/>
-    <ROW Component="CMP_Core_MDd_DLL.dll_2" ComponentId="{07166620-A62F-4582-A323-A9C6D6A46DBA}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MDd_DLL.dll_2"/>
-    <ROW Component="CMP_Core_MT_DLL.dll" ComponentId="{E86FFF8F-C1D2-4BE1-9A67-79D7A049DE73}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MT_DLL.dll"/>
-    <ROW Component="CMP_Core_MT_DLL.dll_1" ComponentId="{8DB6BAF5-2EB9-42B2-B44E-9709687EF20D}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MT_DLL.dll_1"/>
-    <ROW Component="CMP_Core_MTd.lib" ComponentId="{AB2FB76C-CE5A-47AD-94FB-7F9344C59FBC}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MTd.lib" Type="0"/>
-    <ROW Component="CMP_Core_MTd.lib_1" ComponentId="{82B606CB-3DDC-4050-A829-A495A0E1079F}" Directory_="x64_Dir" Attributes="0" KeyPath="CMP_Core_MTd.lib_1" Type="0"/>
-    <ROW Component="CMP_Core_MTd_DLL.dll" ComponentId="{64DF9A93-0323-4B1E-BBC6-315A24DE37DF}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MTd_DLL.dll"/>
-    <ROW Component="CMP_Core_MTd_DLL.dll_1" ComponentId="{1419D007-11FE-4F73-A024-5CB501953F95}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MTd_DLL.dll_1"/>
-    <ROW Component="SHORTCUTDIR" ComponentId="{259C902A-3821-4B6D-8E4B-768991394137}" Directory_="SHORTCUTDIR" Attributes="0"/>
-    <ROW Component="bc1_cmp.h" ComponentId="{DA0796B5-12D2-4E1C-9FF2-F6D558573689}" Directory_="encoders_Dir" Attributes="0" KeyPath="bc1_cmp.h" Type="0"/>
-    <ROW Component="cmp_core.h" ComponentId="{0ABDDF9A-728A-4366-B974-C85EBA16FCCF}" Directory_="Header_Dir" Attributes="0" KeyPath="cmp_core.h" Type="0"/>
-    <ROW Component="core_example1.sln" ComponentId="{60505DB5-3F53-4C46-8850-618E15B25933}" Directory_="core_example1_Dir" Attributes="0" KeyPath="core_example1.sln" Type="0"/>
-    <ROW Component="corelicense.txt" ComponentId="{724E6D96-3FE7-4272-BF07-A7EA984C7CA1}" Directory_="License_Dir" Attributes="0" KeyPath="corelicense.txt" Type="0"/>
+    <ROW Component="AI_CustomARPName" ComponentId="{DB430310-0F06-4C69-B33A-94252DDB7648}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
+    <ROW Component="AI_DisableModify" ComponentId="{91C16FDB-D676-4F43-B764-3776C2863679}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
+    <ROW Component="AI_ExePath" ComponentId="{3AB891AD-6979-4C74-B6DA-80166591D775}" Directory_="APPDIR" Attributes="260" KeyPath="AI_ExePath"/>
+    <ROW Component="CMP_Core_MD_DLL.dll" ComponentId="{BE296FF5-F53A-442A-883D-7CF6A86A6E3D}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MD_DLL.dll"/>
+    <ROW Component="CMP_Core_MD_DLL.dll_1" ComponentId="{3DB37A55-AB41-42A1-90D4-9EE4EFEFFE83}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MD_DLL.dll_1"/>
+    <ROW Component="CMP_Core_MDd_DLL.dll" ComponentId="{0B4CF483-1EA3-42EB-8051-8B8341CC431F}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MDd_DLL.dll"/>
+    <ROW Component="CMP_Core_MDd_DLL.dll_2" ComponentId="{162EE336-5BD5-479B-BA64-E0D8DD1825BC}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MDd_DLL.dll_2"/>
+    <ROW Component="CMP_Core_MT_DLL.dll" ComponentId="{1C7B2AE2-2834-44C8-8BFF-935D9B8A6597}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MT_DLL.dll"/>
+    <ROW Component="CMP_Core_MT_DLL.dll_1" ComponentId="{0DE695D1-5896-4BB8-B879-400562744D3F}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MT_DLL.dll_1"/>
+    <ROW Component="CMP_Core_MTd.lib" ComponentId="{7EA4221B-282B-49EA-BA3A-44F9C649377B}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MTd.lib" Type="0"/>
+    <ROW Component="CMP_Core_MTd.lib_1" ComponentId="{87CD00C8-8D07-48E1-8108-75B86E23B925}" Directory_="x64_Dir" Attributes="0" KeyPath="CMP_Core_MTd.lib_1" Type="0"/>
+    <ROW Component="CMP_Core_MTd_DLL.dll" ComponentId="{46FE1247-894D-4935-A360-49942900DE42}" Directory_="x86_Dir" Attributes="0" KeyPath="CMP_Core_MTd_DLL.dll"/>
+    <ROW Component="CMP_Core_MTd_DLL.dll_1" ComponentId="{3DDE4657-CA9E-4AA8-B51B-7F6EE80684D5}" Directory_="x64_Dir" Attributes="256" KeyPath="CMP_Core_MTd_DLL.dll_1"/>
+    <ROW Component="SHORTCUTDIR" ComponentId="{0BE70B47-635E-4A61-B758-5C5D1E8B5A80}" Directory_="SHORTCUTDIR" Attributes="0"/>
+    <ROW Component="bc1_cmp.h" ComponentId="{87054DEE-DA6A-48D1-8C31-E83BE35DB74C}" Directory_="encoders_Dir" Attributes="0" KeyPath="bc1_cmp.h" Type="0"/>
+    <ROW Component="cmp_core.h" ComponentId="{49740F81-383A-47F3-83CA-B305B9E02F1E}" Directory_="Header_Dir" Attributes="0" KeyPath="cmp_core.h" Type="0"/>
+    <ROW Component="core_example1.sln" ComponentId="{6F9ACADB-857A-4496-BFF6-B20EDE43D3D0}" Directory_="core_example1_Dir" Attributes="0" KeyPath="core_example1.sln" Type="0"/>
+    <ROW Component="corelicense.txt" ComponentId="{AE323F70-19B8-4FFF-AC43-F92B1E412E1A}" Directory_="License_Dir" Attributes="0" KeyPath="corelicense.txt" Type="0"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiFeatsComponent">
     <ROW Feature="MainFeature" Title="Compressonator SDK" Description="Description" Display="7" Level="1" Directory_="APPDIR" Attributes="24" Components="AI_CustomARPName AI_DisableModify AI_ExePath CMP_Core_MD_DLL.dll CMP_Core_MD_DLL.dll_1 CMP_Core_MDd_DLL.dll CMP_Core_MDd_DLL.dll_2 CMP_Core_MT_DLL.dll CMP_Core_MT_DLL.dll_1 CMP_Core_MTd.lib CMP_Core_MTd.lib_1 CMP_Core_MTd_DLL.dll CMP_Core_MTd_DLL.dll_1 SHORTCUTDIR bc1_cmp.h cmp_core.h core_example1.sln corelicense.txt"/>

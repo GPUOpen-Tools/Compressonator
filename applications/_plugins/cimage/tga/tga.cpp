@@ -31,6 +31,26 @@
 CMIPS*             TGA_CMips;
 TGA_FileSaveParams g_FileSaveParams;
 
+// TGA_CMips outlives every call, so the fallback instance must not be a stack local.
+static CMP_CMIPS g_TGA_CMipsFallback;
+
+static bool ReadRemainingFileSize(FILE* pFile, CMP_DWORD& size)
+{
+    long lCurrPos = ftell(pFile);
+    fseek(pFile, 0, SEEK_END);
+    long lEndPos = ftell(pFile);
+    fseek(pFile, lCurrPos, SEEK_SET);
+    if (lCurrPos < 0 || lEndPos < 0 || lEndPos <= lCurrPos)
+        return false;
+
+    unsigned long long remaining = static_cast<unsigned long long>(lEndPos - lCurrPos);
+    if (remaining > UINT32_MAX)
+        return false;
+
+    size = static_cast<CMP_DWORD>(remaining);
+    return true;
+}
+
 #ifdef BUILD_AS_PLUGIN_DLL
 DECLARE_PLUGIN(Plugin_TGA)
 SET_PLUGIN_TYPE("IMAGE")
@@ -96,10 +116,9 @@ int Plugin_TGA::TC_PluginFileSaveTexture(const char* pszFilename, CMP_Texture* s
 
 int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSet)
 {
-    CMP_CMIPS lCMips;
     if (!TGA_CMips)
     {
-        TGA_CMips = &lCMips;
+        TGA_CMips = &g_TGA_CMipsFallback;
     }
 
     // ATI code
@@ -107,8 +126,7 @@ int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSe
     pFile       = fopen(pszFilename, ("rb"));
     if (pFile == NULL)
     {
-        if (TGA_CMips)
-            TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) opening file = %s "), EL_Error, IDS_ERROR_FILE_OPEN, pszFilename);
+        TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) opening file = %s "), EL_Error, IDS_ERROR_FILE_OPEN, pszFilename);
         return -1;
     }
 
@@ -116,8 +134,7 @@ int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSe
     TGAHeader header;
     if (fread(&header, sizeof(TGAHeader), 1, pFile) != 1)
     {
-        if (TGA_CMips)
-            TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) invalid TGA header. Filename = %s "), EL_Error, IDS_ERROR_NOT_TGA, pszFilename);
+        TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) invalid TGA header. Filename = %s "), EL_Error, IDS_ERROR_NOT_TGA, pszFilename);
         fclose(pFile);
         return -1;
     }
@@ -134,17 +151,33 @@ int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSe
 
     if (header.cColorMapType == 0)
     {
+        TC_PluginError loadResult = PE_Unknown;
+        bool           dispatched = true;
+
         if (header.cImageType == ImageType_ARGB8888 && header.cColorDepth == 32)
-            return LoadTGA_ARGB8888(pFile, pMipSet, header);
+            loadResult = LoadTGA_ARGB8888(pFile, pMipSet, header);
         else if (header.cImageType == ImageType_ARGB8888_RLE && header.cColorDepth == 32)
-            return LoadTGA_ARGB8888_RLE(pFile, pMipSet, header);
+            loadResult = LoadTGA_ARGB8888_RLE(pFile, pMipSet, header);
         else if (header.cImageType == ImageType_ARGB8888 && header.cColorDepth == 24)
-            return LoadTGA_RGB888(pFile, pMipSet, header);
+            loadResult = LoadTGA_RGB888(pFile, pMipSet, header);
         else if (header.cImageType == ImageType_ARGB8888_RLE && header.cColorDepth == 24)
-            return LoadTGA_RGB888_RLE(pFile, pMipSet, header);
+            loadResult = LoadTGA_RGB888_RLE(pFile, pMipSet, header);
         else if (header.cImageType == ImageType_G8_RLE && header.cColorDepth == 8)
-            return LoadTGA_G8_RLE(pFile, pMipSet, header);  // Raw greyscale -> Converted to RGBA channels where R=G=B and alpha is 255
-        else                                                // use stbi
+            loadResult = LoadTGA_G8_RLE(pFile, pMipSet, header);  // Raw greyscale -> Converted to RGBA channels where R=G=B and alpha is 255
+        else
+            dispatched = false;
+
+        if (dispatched)
+        {
+            // The loaders allocate the mip level before decoding, so a malformed or truncated
+            // stream would otherwise leak the decoded image buffer on every attempt. FreeMipSet
+            // is idempotent, so the caller reclaiming it again is harmless.
+            if (loadResult != PE_OK)
+                TGA_CMips->FreeMipSet(pMipSet);
+            return loadResult;
+        }
+
+        // use stbi
         {
             fclose(pFile);
             char*   sti_pData;
@@ -152,9 +185,36 @@ int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSe
             sti_pData = (char*)stbi_load(pszFilename, &width, &height, &channels, STBI_rgb_alpha);
             if (sti_pData)
             {
-                if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), width, height, CF_8bit, TDT_ARGB))
+                // Reject dimensions where width * height * sizeof(CMP_COLOR) would overflow and undersize the
+                // buffer, or exceed INT32_MAX and risk signed overflow in the later pixel-offset arithmetic.
+                if (width <= 0 || height <= 0 ||
+                    static_cast<CMP_DWORD>(height) > (static_cast<CMP_DWORD>(INT32_MAX) / sizeof(CMP_COLOR)) / static_cast<CMP_DWORD>(width))
+                {
+                    stbi_image_free(sti_pData);
+                    TGA_CMips->FreeMipSet(pMipSet);
                     return PE_Unknown;
-                CMP_DWORD dwSize           = pMipSet->m_nWidth * pMipSet->m_nHeight * sizeof(CMP_COLOR);
+                }
+                // The mip level was already allocated from the header dimensions above.
+                // AllocateMipLevelData overwrites m_pbData without freeing it, so release the
+                // header-sized buffer first.
+                MipLevel* pMipLevel = TGA_CMips->GetMipLevel(pMipSet, 0);
+                if (pMipLevel)
+                    TGA_CMips->FreeMipLevelData(pMipLevel);
+
+                if (!pMipLevel || !TGA_CMips->AllocateMipLevelData(pMipLevel, width, height, CF_8bit, TDT_ARGB))
+                {
+                    stbi_image_free(sti_pData);
+                    TGA_CMips->FreeMipSet(pMipSet);
+                    return PE_Unknown;
+                }
+
+                // The header dimensions can disagree with what stb actually decoded. Both the mip level
+                // and sti_pData are sized from the decoded values, so the MipSet must describe those too,
+                // otherwise the copy below is sized against the wrong buffer.
+                pMipSet->m_nWidth  = width;
+                pMipSet->m_nHeight = height;
+
+                CMP_DWORD dwSize           = static_cast<CMP_DWORD>(width) * static_cast<CMP_DWORD>(height) * static_cast<CMP_DWORD>(sizeof(CMP_COLOR));
                 pMipSet->m_ChannelFormat   = CF_8bit;
                 pMipSet->m_TextureDataType = TDT_ARGB;
                 pMipSet->m_dwFourCC        = 0;
@@ -163,28 +223,27 @@ int Plugin_TGA::TC_PluginFileLoadTexture(const char* pszFilename, MipSet* pMipSe
                 pMipSet->m_nMipLevels      = 1;
                 CMP_BYTE* cmp_pData        = (CMP_BYTE*)(TGA_CMips->GetMipLevel(pMipSet, 0)->m_pbData);
                 memcpy(cmp_pData, sti_pData, dwSize);
-                free(sti_pData);
+                stbi_image_free(sti_pData);
                 return PE_OK;
             }
-            if (TGA_CMips)
-                TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) unsupported type Filename = %s "), EL_Error, IDS_ERROR_UNSUPPORTED_TYPE, pszFilename);
+            TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) unsupported type Filename = %s "), EL_Error, IDS_ERROR_UNSUPPORTED_TYPE, pszFilename);
+            TGA_CMips->FreeMipSet(pMipSet);
             return -1;
         }
     }
 
-    if (TGA_CMips)
-        TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) file load Filename = %s "), EL_Error, IDS_ERROR_FILE_OPEN, pszFilename);
+    TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) unsupported colour map type. Filename = %s "), EL_Error, IDS_ERROR_UNSUPPORTED_TYPE, pszFilename);
     fclose(pFile);
+    TGA_CMips->FreeMipSet(pMipSet);
 
     return -1;
 }
 
 int Plugin_TGA::TC_PluginFileSaveTexture(const char* pszFilename, MipSet* pMipSet)
 {
-    CMP_CMIPS lCMips;
     if (!TGA_CMips)
     {
-        TGA_CMips = &lCMips;
+        TGA_CMips = &g_TGA_CMipsFallback;
     }
     assert(pszFilename);
     assert(pMipSet);
@@ -193,8 +252,7 @@ int Plugin_TGA::TC_PluginFileSaveTexture(const char* pszFilename, MipSet* pMipSe
     pFile       = fopen(pszFilename, ("wb"));
     if (pFile == NULL)
     {
-        if (TGA_CMips)
-            TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) saving file = %s "), EL_Error, IDS_ERROR_FILE_OPEN, pszFilename);
+        TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) saving file = %s "), EL_Error, IDS_ERROR_FILE_OPEN, pszFilename);
         return -1;
     }
 
@@ -241,8 +299,7 @@ int Plugin_TGA::TC_PluginFileSaveTexture(const char* pszFilename, MipSet* pMipSe
     else if (header.cImageType == ImageType_ARGB8888_RLE && pMipSet->m_TextureDataType == TDT_XRGB)
         return SaveTGA_RGB888_RLE(pFile, pMipSet);
 
-    if (TGA_CMips)
-        TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) unsupported type Filename = %s "), EL_Error, IDS_ERROR_UNSUPPORTED_TYPE, pszFilename);
+    TGA_CMips->PrintError(("Error(%d): TGA Plugin ID(%d) unsupported type Filename = %s "), EL_Error, IDS_ERROR_UNSUPPORTED_TYPE, pszFilename);
     fclose(pFile);
 
     return -1;
@@ -253,7 +310,10 @@ int Plugin_TGA::TC_PluginFileSaveTexture(const char* pszFilename, MipSet* pMipSe
 TC_PluginError LoadTGA_ARGB8888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 {
     if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
+    {
+        fclose(pFile);
         return PE_Unknown;
+    }
 
     pMipSet->m_ChannelFormat   = CF_8bit;
     pMipSet->m_TextureDataType = TDT_ARGB;
@@ -262,10 +322,32 @@ TC_PluginError LoadTGA_ARGB8888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
     pMipSet->m_format          = CMP_FORMAT_ARGB_8888;
     pMipSet->m_nMipLevels      = 1;
 
+    // Reject dimensions where width * height * sizeof(CMP_COLOR) would overflow and undersize the buffer,
+    // or exceed INT32_MAX and risk signed overflow in the later pixel-offset arithmetic.
+    if (pMipSet->m_nWidth <= 0 || pMipSet->m_nHeight <= 0 ||
+        static_cast<CMP_DWORD>(pMipSet->m_nHeight) > (static_cast<CMP_DWORD>(INT32_MAX) / sizeof(CMP_COLOR)) / static_cast<CMP_DWORD>(pMipSet->m_nWidth))
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+
     // Allocate a temporary buffer and read the bitmap data into it
-    CMP_DWORD      dwSize    = pMipSet->m_nWidth * pMipSet->m_nHeight * sizeof(CMP_COLOR);
+    CMP_DWORD      dwSize = static_cast<CMP_DWORD>(pMipSet->m_nWidth) * static_cast<CMP_DWORD>(pMipSet->m_nHeight) * static_cast<CMP_DWORD>(sizeof(CMP_COLOR));
     unsigned char* pTempData = static_cast<unsigned char*>(malloc(dwSize));
-    fread(pTempData, dwSize, 1, pFile);
+    if (!pTempData)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+
+    // A truncated file would otherwise leave part of pTempData uninitialized
+    // and that heap content would be decoded straight into the returned image.
+    if (fread(pTempData, dwSize, 1, pFile) != 1)
+    {
+        free(pTempData);
+        fclose(pFile);
+        return PE_Unknown;
+    }
     fclose(pFile);
 
     CMP_BYTE* pTempPtr = pTempData;
@@ -319,7 +401,10 @@ TC_PluginError LoadTGA_ARGB8888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 {
     if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
+    {
+        fclose(pFile);
         return PE_Unknown;
+    }
 
     pMipSet->m_ChannelFormat   = CF_8bit;
     pMipSet->m_TextureDataType = TDT_ARGB;
@@ -329,17 +414,29 @@ TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Hea
     pMipSet->m_nMipLevels      = 1;
 
     // Allocate a temporary buffer and read the bitmap data into it
-    long lCurrPos = ftell(pFile);
-    fseek(pFile, 0, SEEK_END);
-    long lEndPos = ftell(pFile);
-    fseek(pFile, lCurrPos, SEEK_SET);
-    CMP_DWORD      dwTempSize = lEndPos - lCurrPos;
-    unsigned char* pTempData  = static_cast<unsigned char*>(malloc(dwTempSize));
-    fread(pTempData, dwTempSize, 1, pFile);
+    CMP_DWORD dwTempSize = 0;
+    if (!ReadRemainingFileSize(pFile, dwTempSize))
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    unsigned char* pTempData = static_cast<unsigned char*>(malloc(dwTempSize));
+    if (!pTempData)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    if (fread(pTempData, dwTempSize, 1, pFile) != 1)
+    {
+        free(pTempData);
+        fclose(pFile);
+        return PE_Unknown;
+    }
     fclose(pFile);
 
-    CMP_DWORD dwPitch  = pMipSet->m_nWidth * sizeof(CMP_COLOR);
-    CMP_BYTE* pTempPtr = pTempData;
+    CMP_DWORD       dwPitch  = pMipSet->m_nWidth * sizeof(CMP_COLOR);
+    CMP_BYTE*       pTempPtr = pTempData;
+    const CMP_BYTE* pTempEnd = pTempData + dwTempSize;
 
     int nStart, nEnd, nIncrement;
     // Bottom up ?
@@ -356,6 +453,13 @@ TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Hea
         nIncrement = -1;
     }
 
+    // A TGA RLE packet may legally span a scanline boundary, so its type, remaining count, and
+    // (for a run-length packet) repeated pixel value must persist across rows instead of being
+    // re-derived from a freshly read header at the start of every row.
+    unsigned char nRepeat = 0;
+    unsigned char nLength = 0;
+    CMP_BYTE      nBlue = 0, nGreen = 0, nRed = 0, nAlpha = 0;
+
     for (int j = nStart; j != nEnd; j += nIncrement)
     {
         CMP_BYTE* pData = (CMP_BYTE*)(TGA_CMips->GetMipLevel(pMipSet, 0)->m_pbData + (j * dwPitch));
@@ -363,15 +467,34 @@ TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Hea
         int nColumn = 0;
         while (nColumn < pMipSet->m_nWidth)
         {
-            unsigned char nLength = *pTempPtr++;
+            if (nRepeat == 0)
+            {
+                if (pTempPtr >= pTempEnd)
+                {
+                    free(pTempData);
+                    return PE_Unknown;
+                }
+                nLength = *pTempPtr++;
+                nRepeat = (nLength & 0x7f) + 1;
+
+                if (nLength & 0x80)
+                {
+                    // Run-length packet: the single repeated pixel value is read once per packet,
+                    // not once per row it happens to cross.
+                    if (pTempEnd - pTempPtr < 4)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    nBlue  = *pTempPtr++;
+                    nGreen = *pTempPtr++;
+                    nRed   = *pTempPtr++;
+                    nAlpha = *pTempPtr++;
+                }
+            }
+
             if (nLength & 0x80)
             {
-                int      nRepeat = nLength - 0x7f;
-                CMP_BYTE nBlue   = *pTempPtr++;
-                CMP_BYTE nGreen  = *pTempPtr++;
-                CMP_BYTE nRed    = *pTempPtr++;
-                CMP_BYTE nAlpha  = *pTempPtr++;
-
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
                     *pData++ = nRed;
@@ -384,17 +507,21 @@ TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Hea
             }
             else
             {
-                int nRepeat = nLength + 1;
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
-                    CMP_BYTE nBlue  = *pTempPtr++;
-                    CMP_BYTE nGreen = *pTempPtr++;
-                    CMP_BYTE nRed   = *pTempPtr++;
-                    CMP_BYTE nAlpha = *pTempPtr++;
-                    *pData++        = nRed;
-                    *pData++        = nGreen;
-                    *pData++        = nBlue;
-                    *pData++        = nAlpha;
+                    if (pTempEnd - pTempPtr < 4)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    nBlue    = *pTempPtr++;
+                    nGreen   = *pTempPtr++;
+                    nRed     = *pTempPtr++;
+                    nAlpha   = *pTempPtr++;
+                    *pData++ = nRed;
+                    *pData++ = nGreen;
+                    *pData++ = nBlue;
+                    *pData++ = nAlpha;
                     nColumn++;
                     nRepeat--;
                 }
@@ -410,7 +537,10 @@ TC_PluginError LoadTGA_ARGB8888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Hea
 TC_PluginError LoadTGA_RGB888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 {
     if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
+    {
+        fclose(pFile);
         return PE_Unknown;
+    }
 
     pMipSet->m_ChannelFormat   = CF_8bit;
     pMipSet->m_TextureDataType = TDT_ARGB;
@@ -419,10 +549,32 @@ TC_PluginError LoadTGA_RGB888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
     pMipSet->m_nMipLevels      = 1;
     pMipSet->m_format          = CMP_FORMAT_ARGB_8888;
 
+    // Reject dimensions where width * height * 3 would overflow and undersize the buffer, or exceed
+    // INT32_MAX and risk signed overflow in the later pixel-offset arithmetic.
+    if (pMipSet->m_nWidth <= 0 || pMipSet->m_nHeight <= 0 ||
+        static_cast<CMP_DWORD>(pMipSet->m_nHeight) > (static_cast<CMP_DWORD>(INT32_MAX) / 3u) / static_cast<CMP_DWORD>(pMipSet->m_nWidth))
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+
     // Allocate a temporary buffer and read the bitmap data into it
-    CMP_DWORD      dwSize    = pMipSet->m_nWidth * pMipSet->m_nHeight * 3;
+    CMP_DWORD      dwSize    = static_cast<CMP_DWORD>(pMipSet->m_nWidth) * static_cast<CMP_DWORD>(pMipSet->m_nHeight) * 3u;
     unsigned char* pTempData = static_cast<unsigned char*>(malloc(dwSize));
-    fread(pTempData, dwSize, 1, pFile);
+    if (!pTempData)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+
+    // A truncated file would otherwise leave part of pTempData uninitialized
+    // and that heap content would be decoded straight into the returned image.
+    if (fread(pTempData, dwSize, 1, pFile) != 1)
+    {
+        free(pTempData);
+        fclose(pFile);
+        return PE_Unknown;
+    }
     fclose(pFile);
 
     CMP_BYTE* pTempPtr = pTempData;
@@ -470,7 +622,10 @@ TC_PluginError LoadTGA_RGB888(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 TC_PluginError LoadTGA_RGB888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 {
     if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
+    {
+        fclose(pFile);
         return PE_Unknown;
+    }
 
     pMipSet->m_ChannelFormat   = CF_8bit;
     pMipSet->m_TextureDataType = TDT_ARGB;
@@ -480,17 +635,29 @@ TC_PluginError LoadTGA_RGB888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Heade
     pMipSet->m_format          = CMP_FORMAT_ARGB_8888;
 
     // Allocate a temporary buffer and read the bitmap data into it
-    long lCurrPos = ftell(pFile);
-    fseek(pFile, 0, SEEK_END);
-    long lEndPos = ftell(pFile);
-    fseek(pFile, lCurrPos, SEEK_SET);
-    CMP_DWORD      dwTempSize = lEndPos - lCurrPos;
-    unsigned char* pTempData  = static_cast<unsigned char*>(malloc(dwTempSize));
-    fread(pTempData, dwTempSize, 1, pFile);
+    CMP_DWORD dwTempSize = 0;
+    if (!ReadRemainingFileSize(pFile, dwTempSize))
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    unsigned char* pTempData = static_cast<unsigned char*>(malloc(dwTempSize));
+    if (!pTempData)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    if (fread(pTempData, dwTempSize, 1, pFile) != 1)
+    {
+        free(pTempData);
+        fclose(pFile);
+        return PE_Unknown;
+    }
     fclose(pFile);
 
-    CMP_BYTE* pTempPtr   = pTempData;
-    CMP_DWORD dwPitchOut = pMipSet->m_nWidth * sizeof(CMP_COLOR);
+    CMP_BYTE*       pTempPtr   = pTempData;
+    const CMP_BYTE* pTempEnd   = pTempData + dwTempSize;
+    CMP_DWORD       dwPitchOut = pMipSet->m_nWidth * sizeof(CMP_COLOR);
 
     int nStart, nEnd, nIncrement;
     // Bottom up ?
@@ -509,6 +676,7 @@ TC_PluginError LoadTGA_RGB888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Heade
 
     unsigned char nRepeat = 0;
     unsigned char nLength = 0;
+    CMP_BYTE      nBlue = 0, nGreen = 0, nRed = 0;
     for (int j = nStart; j != nEnd; j += nIncrement)
     {
         CMP_BYTE* pData = (CMP_BYTE*)(TGA_CMips->GetMipLevel(pMipSet, 0)->m_pbData + (j * dwPitchOut));
@@ -518,15 +686,31 @@ TC_PluginError LoadTGA_RGB888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Heade
         {
             if (nRepeat == 0)
             {
+                if (pTempPtr >= pTempEnd)
+                {
+                    free(pTempData);
+                    return PE_Unknown;
+                }
                 nLength = *pTempPtr++;
                 nRepeat = (nLength & 0x7f) + 1;
+
+                if (nLength & 0x80)
+                {
+                    // Run-length packet: the single repeated pixel value is read once per packet,
+                    // not once per row it happens to cross.
+                    if (pTempEnd - pTempPtr < 3)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    nBlue  = *pTempPtr++;
+                    nGreen = *pTempPtr++;
+                    nRed   = *pTempPtr++;
+                }
             }
 
             if (nLength & 0x80)
             {
-                CMP_BYTE nBlue  = *pTempPtr++;
-                CMP_BYTE nGreen = *pTempPtr++;
-                CMP_BYTE nRed   = *pTempPtr++;
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
                     *pData++ = nRed;
@@ -541,97 +725,18 @@ TC_PluginError LoadTGA_RGB888_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Heade
             {
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
-                    CMP_BYTE nBlue  = *pTempPtr++;
-                    CMP_BYTE nGreen = *pTempPtr++;
-                    CMP_BYTE nRed   = *pTempPtr++;
-                    *pData++        = nRed;
-                    *pData++        = nGreen;
-                    *pData++        = nBlue;
-                    *pData++        = 0xff;
-                    nColumn++;
-                    nRepeat--;
-                }
-            }
-        }
-    }
-
-    free(pTempData);
-
-    return PE_OK;
-}
-
-// No longer used : Remove
-TC_PluginError LoadTGA_G8(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
-{
-    if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
-        return PE_Unknown;
-
-    pMipSet->m_ChannelFormat   = CF_8bit;
-    pMipSet->m_TextureDataType = TDT_ARGB;
-    pMipSet->m_dwFourCC        = 0;
-    pMipSet->m_dwFourCC2       = 0;
-    pMipSet->m_nMipLevels      = 1;
-    pMipSet->m_format          = CMP_FORMAT_ARGB_8888;
-
-    // Allocate a temporary buffer and read the bitmap data into it
-    long lCurrPos = ftell(pFile);
-    fseek(pFile, 0, SEEK_END);
-    long lEndPos = ftell(pFile);
-    fseek(pFile, lCurrPos, SEEK_SET);
-    CMP_DWORD      dwTempSize = lEndPos - lCurrPos;
-    unsigned char* pTempData  = static_cast<unsigned char*>(malloc(dwTempSize));
-    fread(pTempData, dwTempSize, 1, pFile);
-    fclose(pFile);
-
-    CMP_BYTE* pTempPtr = pTempData;
-
-    int nStart, nEnd, nIncrement;
-    // Bottom up ?
-    if (Header.cFormatFlags & 0x20)
-    {
-        nStart     = 0;
-        nEnd       = pMipSet->m_nHeight;
-        nIncrement = 1;
-    }
-    else
-    {
-        nStart     = pMipSet->m_nHeight - 1;
-        nEnd       = -1;
-        nIncrement = -1;
-    }
-
-    for (int j = nStart; j != nEnd; j += nIncrement)
-    {
-        CMP_BYTE* pData = (CMP_BYTE*)(TGA_CMips->GetMipLevel(pMipSet, 0)->m_pbData + (j * pMipSet->m_nWidth * sizeof(CMP_COLOR)));
-
-        int nColumn = 0;
-        while (nColumn < pMipSet->m_nWidth)
-        {
-            unsigned char nLength = *pTempPtr++;
-            if (nLength & 0x80)
-            {
-                int      nRepeat = nLength - 0x7f;
-                CMP_BYTE gray    = *pTempPtr++;
-                while (nRepeat && nColumn < pMipSet->m_nWidth)
-                {
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = 0xff;
-                    nColumn++;
-                    nRepeat--;
-                }
-            }
-            else
-            {
-                int      nRepeat = nLength + 1;
-                CMP_BYTE gray    = *pTempPtr++;
-                while (nRepeat && nColumn < pMipSet->m_nWidth)
-                {
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = 0xff;
+                    if (pTempEnd - pTempPtr < 3)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    CMP_BYTE rawBlue  = *pTempPtr++;
+                    CMP_BYTE rawGreen = *pTempPtr++;
+                    CMP_BYTE rawRed   = *pTempPtr++;
+                    *pData++          = rawRed;
+                    *pData++          = rawGreen;
+                    *pData++          = rawBlue;
+                    *pData++          = 0xff;
                     nColumn++;
                     nRepeat--;
                 }
@@ -647,7 +752,10 @@ TC_PluginError LoadTGA_G8(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 TC_PluginError LoadTGA_G8_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
 {
     if (!TGA_CMips->AllocateMipLevelData(TGA_CMips->GetMipLevel(pMipSet, 0), Header.nWidth, Header.nHeight, CF_8bit, TDT_ARGB))
+    {
+        fclose(pFile);
         return PE_Unknown;
+    }
 
     pMipSet->m_ChannelFormat   = CF_8bit;
     pMipSet->m_TextureDataType = TDT_ARGB;
@@ -657,16 +765,28 @@ TC_PluginError LoadTGA_G8_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
     pMipSet->m_format          = CMP_FORMAT_ARGB_8888;
 
     // Allocate a temporary buffer and read the bitmap data into it
-    long lCurrPos = ftell(pFile);
-    fseek(pFile, 0, SEEK_END);
-    long lEndPos = ftell(pFile);
-    fseek(pFile, lCurrPos, SEEK_SET);
-    CMP_DWORD      dwTempSize = lEndPos - lCurrPos;
-    unsigned char* pTempData  = static_cast<unsigned char*>(malloc(dwTempSize));
-    fread(pTempData, dwTempSize, 1, pFile);
+    CMP_DWORD dwTempSize = 0;
+    if (!ReadRemainingFileSize(pFile, dwTempSize))
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    unsigned char* pTempData = static_cast<unsigned char*>(malloc(dwTempSize));
+    if (!pTempData)
+    {
+        fclose(pFile);
+        return PE_Unknown;
+    }
+    if (fread(pTempData, dwTempSize, 1, pFile) != 1)
+    {
+        free(pTempData);
+        fclose(pFile);
+        return PE_Unknown;
+    }
     fclose(pFile);
 
-    CMP_BYTE* pTempPtr = pTempData;
+    CMP_BYTE*       pTempPtr = pTempData;
+    const CMP_BYTE* pTempEnd = pTempData + dwTempSize;
 
     int nStart, nEnd, nIncrement;
     // Bottom up ?
@@ -683,6 +803,13 @@ TC_PluginError LoadTGA_G8_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
         nIncrement = -1;
     }
 
+    // A TGA RLE packet may legally span a scanline boundary, so its type, remaining count, and
+    // (for a run-length packet) repeated grey value must persist across rows instead of being
+    // re-derived from a freshly read header at the start of every row.
+    unsigned char nRepeat = 0;
+    unsigned char nLength = 0;
+    CMP_BYTE      gray    = 0;
+
     for (int j = nStart; j != nEnd; j += nIncrement)
     {
         CMP_BYTE* pData = (CMP_BYTE*)(TGA_CMips->GetMipLevel(pMipSet, 0)->m_pbData + (j * pMipSet->m_nWidth * sizeof(CMP_COLOR)));
@@ -690,11 +817,31 @@ TC_PluginError LoadTGA_G8_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
         int nColumn = 0;
         while (nColumn < pMipSet->m_nWidth)
         {
-            unsigned char nLength = *pTempPtr++;
+            if (nRepeat == 0)
+            {
+                if (pTempPtr >= pTempEnd)
+                {
+                    free(pTempData);
+                    return PE_Unknown;
+                }
+                nLength = *pTempPtr++;
+                nRepeat = (nLength & 0x7f) + 1;
+
+                if (nLength & 0x80)
+                {
+                    // Run-length packet: the single repeated grey value is read once per packet,
+                    // not once per row it happens to cross.
+                    if (pTempPtr >= pTempEnd)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    gray = *pTempPtr++;
+                }
+            }
+
             if (nLength & 0x80)
             {
-                int      nRepeat = nLength - 0x7f;
-                CMP_BYTE gray    = *pTempPtr++;
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
                     *pData++ = gray;
@@ -707,14 +854,23 @@ TC_PluginError LoadTGA_G8_RLE(FILE* pFile, MipSet* pMipSet, TGAHeader& Header)
             }
             else
             {
-                int      nRepeat = nLength + 1;
-                CMP_BYTE gray    = *pTempPtr++;
+                // Raw packet: each sample carries its own grey byte. Before v4.6 this branch
+                // replicated the packet's first grey byte across every sample, so greyscale RLE
+                // TGAs containing raw packets decoded to incorrect pixel values. Decoded output
+                // for such files therefore changes with this fix (see
+                // cmp_unittests/tga_rle_security_tests.cpp, Group 5).
                 while (nRepeat && nColumn < pMipSet->m_nWidth)
                 {
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = gray;
-                    *pData++ = 0xff;
+                    if (pTempPtr >= pTempEnd)
+                    {
+                        free(pTempData);
+                        return PE_Unknown;
+                    }
+                    CMP_BYTE rawGray = *pTempPtr++;
+                    *pData++         = rawGray;
+                    *pData++         = rawGray;
+                    *pData++         = rawGray;
+                    *pData++         = 0xff;
                     nColumn++;
                     nRepeat--;
                 }

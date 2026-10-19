@@ -113,8 +113,8 @@ int Codec_Plugin_BRLG::TC_Init(void* kernel_options)
     return (0);
 }
 
-void Codec_Plugin_BRLG::TC_Start(){};
-void Codec_Plugin_BRLG::TC_End(){};
+void Codec_Plugin_BRLG::TC_Start() {};
+void Codec_Plugin_BRLG::TC_End() {};
 
 int BRLG_EncodeClass::DecompressBlock(void* cmpin, void* srcout)
 {
@@ -188,10 +188,28 @@ int BRLG_EncodeClass::CompressBlock(CGU_UINT32 xBlock, CGU_UINT32 yBlock, void* 
         return (-1);
     }
 
+    // Guard against integer overflow in m_srcWidth * m_srcHeight.
+    if (m_srcHeight > UINT32_MAX / m_srcWidth)
+        return (-1);  // prevent integer overflow
+
+    // Guard: reject if the actual source buffer (set by the HPC thread pool
+    // via m_srcBufferSizeInPixels) is smaller than the full pixel count implied by
+    // the claimed dimensions.  A value of 0 means "not set" (block-encoder API path
+    // that trusts the caller), so skip the check in that case.
+    CGU_UINT32 totalPixels = (CGU_UINT32)m_srcWidth * (CGU_UINT32)m_srcHeight;
+    if (m_srcBufferSizeInPixels > 0u && m_srcBufferSizeInPixels < totalPixels)
+        return (-1);  // source buffer too small for claimed dimensions
+
+    // Reject block coordinates outside the declared image before any offset is derived from them.
+    // The partial-block path below computes m_srcWidth - xBlock * BlockX, which underflows for an
+    // out-of-range block and indexes ImageSource out of bounds; destI would also run past out.
+    if (xBlock >= ((m_srcWidth - 1) / BlockX) + 1 || yBlock >= ((m_srcHeight - 1) / BlockY) + 1)
+        return (-1);
+
     int width_in_blocks = (m_srcWidth + 3) >> 2;
 
     unsigned int destI    = (xBlock * COMPRESSED_BLOCK_SIZE) + (yBlock * width_in_blocks * COMPRESSED_BLOCK_SIZE);
-    int          srcindex = 4 * (yBlock * m_srcWidth + xBlock);
+    size_t       srcindex = 4 * ((size_t)yBlock * m_srcWidth + xBlock);
     int          blkindex = 0;
 
     CMP_Vec4uc srcData[16];
@@ -199,6 +217,12 @@ int BRLG_EncodeClass::CompressBlock(CGU_UINT32 xBlock, CGU_UINT32 yBlock, void* 
     //Check if it is a complete 4X4 block
     if (((xBlock + 1) * BlockX <= m_srcWidth) && ((yBlock + 1) * BlockY <= m_srcHeight))
     {
+        // The gather reads four pixel rows starting at srcindex, advancing m_srcWidth per row, so
+        // the last read must stay inside the accepted pixel count.
+        const size_t lastIndex = srcindex + 3 * (size_t)m_srcWidth + 3;
+        if (m_srcBufferSizeInPixels > 0u && lastIndex >= (size_t)m_srcBufferSizeInPixels)
+            return (-1);  // stride/dimension combination reads past the source buffer
+
         for (int j = 0; j < 4; j++)
         {
             for (int i = 0; i < 4; i++)

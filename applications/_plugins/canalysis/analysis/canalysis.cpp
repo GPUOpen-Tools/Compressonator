@@ -60,6 +60,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
+#include <memory>
 #include <string>
 
 using namespace std;
@@ -788,9 +789,9 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
     if (m_imageloader == NULL)
         m_imageloader = new CImageLoader(pluginManager);
 
-    QImage* srcImage  = NULL;
-    QImage* destImage = NULL;
-    QImage* diffImage = NULL;
+    QImage*                 srcImage  = NULL;
+    QImage*                 destImage = NULL;
+    std::unique_ptr<QImage> diffImage;
 
     if (m_imageloader)
     {
@@ -932,7 +933,7 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
 
         if ((strcmp(out, "") != 0))
         {
-            diffImage = new QImage(w, h, QImage::Format_ARGB32);
+            diffImage.reset(new QImage(w, h, QImage::Format_ARGB32));  // C++11-compatible ownership
             QColor src;
             QColor dest;
             QColor diff;
@@ -991,7 +992,7 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
     //-------------------
     // Process Image Diff
     //-------------------
-    if (diffImage != NULL)
+    if (diffImage)
     {
         if ((CMP_FileExists(out)))
         {
@@ -1002,7 +1003,6 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
 
         if (saved && cmipImages != NULL)
         {  //gui
-            delete diffImage;
             if (m_MipDiffImages)
                 m_imageloader->clearMipImages(&m_MipDiffImages);
 
@@ -1020,7 +1020,6 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
         }
         else if (saved && cmipImages == NULL)
         {  //cmdline version pass in null
-            delete diffImage;
             if ((strcmp(out, "") == 0))
             {
                 QFile::remove(out);
@@ -1029,17 +1028,22 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
         }
         else if (!saved && cmipImages != NULL)
         {  //gui- saved fail due to admin right
-            delete diffImage;
             if ((strcmp(out, "") == 0))
             {
                 return 0;
             }
             else
             {
-                QString appLocalPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-                QString redirectOut  = appLocalPath + "/diff.bmp";
-                redirectOut.replace("compressonatorcli", "compressonator");
-                saved = diffImage->save(redirectOut);
+                // CMP_GetUserResultsDir() returns "" when no writable per-user fallback exists;
+                QString appLocalPath = QString::fromStdString(CMP_GetUserResultsDir());
+                if (appLocalPath.isEmpty())
+                {
+                    printf("Error: Image(s) saved failed. No writable fallback location is available.\n");
+                    return -1;
+                }
+
+                QString redirectOut = appLocalPath + "/diff.bmp";
+                saved               = diffImage->save(redirectOut);
                 if (saved)
                 {
                     if (m_MipDiffImages)
@@ -1066,16 +1070,20 @@ int Plugin_Canalysis::TC_ImageDiff(const char*       in1,
         {  //cmdline version pass in null- saved fail due to admin right
             if ((strcmp(out, "") == 0))
             {
-                delete diffImage;
                 return 0;
             }
             else
             {
-                QString appLocalPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-                QString redirectOut  = appLocalPath + "/diff.bmp";
-                redirectOut.replace("compressonatorcli", "compressonator");
-                saved = diffImage->save(redirectOut);
-                delete diffImage;
+                // CMP_GetUserResultsDir() returns "" when no writable per-user fallback exists;
+                QString appLocalPath = QString::fromStdString(CMP_GetUserResultsDir());
+                if (appLocalPath.isEmpty())
+                {
+                    printf("Error: Image(s) saved failed. No writable fallback location is available.\n");
+                    return -1;
+                }
+
+                QString redirectOut = appLocalPath + "/diff.bmp";
+                saved               = diffImage->save(redirectOut);
                 if (saved)
                 {
                     printf("User does not have admin right to the saved path. Diff image has been redirect saved to %s\n", redirectOut.toStdString().c_str());

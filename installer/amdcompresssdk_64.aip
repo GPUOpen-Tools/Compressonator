@@ -24,11 +24,11 @@
     <ROW Property="BannerBitmap" Value="banner" MultiBuildValue="DefaultBuild:AMDCompressTools.bmp" Type="1" MsiKey="BannerBitmap"/>
     <ROW Property="DialogBitmap" Value="dialog" MultiBuildValue="DefaultBuild:AMDCompress.bmp" Type="1" MsiKey="DialogBitmap"/>
     <ROW Property="Manufacturer" Value="GPUOpen.com"/>
-    <ROW Property="ProductCode" Value="1033:{7D5A90D0-2DFF-41C3-9C7F-0A9760CA44D6} " Type="16"/>
+    <ROW Property="ProductCode" Value="1033:{9A343BB7-E722-4465-8154-E6168B67AF4B} " Type="16"/>
     <ROW Property="ProductLanguage" Value="1033"/>
     <ROW Property="ProductName" Value="CompressonatorSDK"/>
-    <ROW Property="ProductVersion" Value="4.5.0" Type="32"/>
-    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorSDK_x64_4.1."/>
+    <ROW Property="ProductVersion" Value="4.6.0" Type="32"/>
+    <ROW Property="SETUP_FILE_NAME" Value="CompressonatorSDK_x64_4.6.0"/>
     <ROW Property="SecureCustomProperties" Value="OLDPRODUCTS;AI_NEWERPRODUCTFOUND;AI_SETUPEXEPATH;SETUPEXEDIR"/>
     <ROW Property="UpgradeCode" Value="{78D0379B-C01A-49C4-A8C7-A41904A35199}"/>
     <ROW Property="WindowsType9X" MultiBuildValue="DefaultBuild:Windows 9x/ME" ValueLocId="-"/>
@@ -57,30 +57,30 @@
     <ROW Directory="x86_Dir" Directory_Parent="VS2015_Dir" DefaultDir="x86" DirectoryOptions="3"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiCompsComponent">
-    <ROW Component="AI_CustomARPName" ComponentId="{4DA8099E-4612-4E09-93BA-18EE0F1B8ABB}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
-    <ROW Component="AI_DisableModify" ComponentId="{A20409F4-FE4E-43F1-9DBB-A8166F69CD30}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
-    <ROW Component="AI_ExePath" ComponentId="{307AD860-2A4F-4A0F-9498-DBF4596AE96E}" Directory_="APPDIR" Attributes="4" KeyPath="AI_ExePath"/>
-    <ROW Component="CMP_Framework_MD_DLL.lib" ComponentId="{CAB6A143-4AEF-4D0D-B7D8-74C883DAB0BB}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MD.lib_2" Type="0"/>
-    <ROW Component="CMP_Framework_MTd.lib" ComponentId="{F61A11A8-55F8-4865-9924-CC2A9713A37F}" Directory_="x64_Dir" Attributes="0" KeyPath="Compressonator_MD.lib" Type="0"/>
-    <ROW Component="Compressonator_MD_DLL.dll" ComponentId="{D8655B23-652A-49EA-998E-982B89A90AF6}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MD_DLL.dll"/>
-    <ROW Component="Compressonator_MD_DLL.dll_3" ComponentId="{EA6111A3-D382-4661-90B5-332901D1C1F4}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MD_DLL.dll_3"/>
-    <ROW Component="Compressonator_MDd_DLL.dll" ComponentId="{566C1BF3-7154-466F-868D-5539E7036513}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MDd_DLL.dll"/>
-    <ROW Component="Compressonator_MDd_DLL.dll_2" ComponentId="{EE9B989D-BFFB-4127-B4B0-6F66B0A91CEE}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MDd_DLL.dll_2"/>
-    <ROW Component="Compressonator_MT_DLL.dll" ComponentId="{47F90BC1-A23F-4FB6-B4C7-2A4407922FF1}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MT_DLL.dll"/>
-    <ROW Component="Compressonator_MT_DLL.dll_2" ComponentId="{B1A3AAE8-D66D-4241-8E58-0873B302284E}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MT_DLL.dll_2"/>
-    <ROW Component="Compressonator_MTd_DLL.dll" ComponentId="{9E60BD57-F2B7-4D00-BC5A-8BC488918A9D}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MTd_DLL.dll"/>
-    <ROW Component="Compressonator_MTd_DLL.dll_1" ComponentId="{80438227-B14C-4CDC-AD27-BF59DB12E18D}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MTd_DLL.dll_1"/>
-    <ROW Component="DDS_Helpers.cpp_3" ComponentId="{C0D12FCB-1EA8-40B0-8724-51954FCEF0A9}" Directory_="common_Dir" Attributes="0" KeyPath="DDS_Helpers.cpp" Type="0"/>
-    <ROW Component="Name" ComponentId="{CD46E9BC-5464-4D7D-8092-59AA5D703F00}" Directory_="APPDIR" Attributes="260" KeyPath="Name"/>
-    <ROW Component="ProductInformation" ComponentId="{0392C112-CC93-451D-9F81-2AEB5B20E08F}" Directory_="APPDIR" Attributes="4" KeyPath="Version"/>
-    <ROW Component="SDKLicense.txt" ComponentId="{E164A7DC-4582-4E9F-9C03-BE44EA56ACA6}" Directory_="License_Dir" Attributes="0" KeyPath="SDKLicense.txt" Type="0"/>
-    <ROW Component="SDK_Example1.cpp" ComponentId="{7B27AC34-AB5B-4A65-BB86-E4E42548D357}" Directory_="sdk_example1_Dir" Attributes="0" KeyPath="SDK_Example1.cpp" Type="0"/>
-    <ROW Component="SDK_Example2.cpp" ComponentId="{6D5CBE45-2BF4-464F-B1AA-6D2CAAA2517B}" Directory_="sdk_example2_Dir" Attributes="0" KeyPath="SDK_Example2.cpp" Type="0"/>
-    <ROW Component="SDK_Example3.cpp" ComponentId="{6477D94A-50AA-44AA-9B61-5F5DB30F4C35}" Directory_="sdk_example3_Dir" Attributes="0" KeyPath="SDK_Example3.cpp" Type="0"/>
-    <ROW Component="SETUP_FILE_NAME" ComponentId="{9F648048-3667-4291-945B-F92742936530}" Directory_="APPDIR" Attributes="260" KeyPath="SETUP_FILE_NAME" Options="1"/>
-    <ROW Component="SHORTCUTDIR" ComponentId="{5E9C2B12-FCCF-4AA3-BAFA-3C930561E4EF}" Directory_="SHORTCUTDIR" Attributes="0"/>
-    <ROW Component="compressonator.h" ComponentId="{E7817545-D5C5-4385-BBA5-8097D300F87C}" Directory_="Header_Dir" Attributes="0" KeyPath="compressonator.h" Type="0"/>
-    <ROW Component="readme.txt" ComponentId="{8A6A0BB0-9E3F-4FD1-924A-296C51E5B5A7}" Directory_="Samples_Dir" Attributes="0" KeyPath="README.md" Type="0"/>
+    <ROW Component="AI_CustomARPName" ComponentId="{F5100953-4E24-4A22-B6CB-531517504080}" Directory_="APPDIR" Attributes="260" KeyPath="DisplayName" Options="1"/>
+    <ROW Component="AI_DisableModify" ComponentId="{17071AE0-9B11-49D0-899C-E2F06EBE07D2}" Directory_="APPDIR" Attributes="260" KeyPath="NoModify" Options="1"/>
+    <ROW Component="AI_ExePath" ComponentId="{6D631D3A-5BF8-4598-B168-F3A2502224B6}" Directory_="APPDIR" Attributes="4" KeyPath="AI_ExePath"/>
+    <ROW Component="CMP_Framework_MD_DLL.lib" ComponentId="{5811759B-9B5A-4668-9C28-1EBEAA636DB2}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MD.lib_2" Type="0"/>
+    <ROW Component="CMP_Framework_MTd.lib" ComponentId="{4BBE5C90-5BB3-4108-86A0-1E050271AAA7}" Directory_="x64_Dir" Attributes="0" KeyPath="Compressonator_MD.lib" Type="0"/>
+    <ROW Component="Compressonator_MD_DLL.dll" ComponentId="{FF5DB253-C910-4DA6-A8A8-6B9547309BCD}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MD_DLL.dll"/>
+    <ROW Component="Compressonator_MD_DLL.dll_3" ComponentId="{708D4D56-5415-48FB-9E50-BF31EED84A31}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MD_DLL.dll_3"/>
+    <ROW Component="Compressonator_MDd_DLL.dll" ComponentId="{8E4FD834-45AC-4D54-9C04-B742B88873C8}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MDd_DLL.dll"/>
+    <ROW Component="Compressonator_MDd_DLL.dll_2" ComponentId="{F0B3A30E-D42F-48C4-9D57-BA19078E8329}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MDd_DLL.dll_2"/>
+    <ROW Component="Compressonator_MT_DLL.dll" ComponentId="{CA3D55BE-C896-4B6E-BAE9-E6133C88BC5F}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MT_DLL.dll"/>
+    <ROW Component="Compressonator_MT_DLL.dll_2" ComponentId="{2EE5C926-6037-4AD4-9AEC-49D0E541C244}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MT_DLL.dll_2"/>
+    <ROW Component="Compressonator_MTd_DLL.dll" ComponentId="{0CCE6A32-59F0-4C46-91F8-1A7F28BDF2F4}" Directory_="x64_Dir" Attributes="256" KeyPath="Compressonator_MTd_DLL.dll"/>
+    <ROW Component="Compressonator_MTd_DLL.dll_1" ComponentId="{89FD869B-5210-402C-A4A7-0CF4EDBEC493}" Directory_="x86_Dir" Attributes="0" KeyPath="Compressonator_MTd_DLL.dll_1"/>
+    <ROW Component="DDS_Helpers.cpp_3" ComponentId="{4290912E-136B-423F-8B8B-05B04DF9D661}" Directory_="common_Dir" Attributes="0" KeyPath="DDS_Helpers.cpp" Type="0"/>
+    <ROW Component="Name" ComponentId="{57C9099C-816C-4EAF-8E4C-93E735006A6C}" Directory_="APPDIR" Attributes="260" KeyPath="Name"/>
+    <ROW Component="ProductInformation" ComponentId="{D08FBF53-5618-4A89-943B-2236629CD43A}" Directory_="APPDIR" Attributes="4" KeyPath="Version"/>
+    <ROW Component="SDKLicense.txt" ComponentId="{9C591B93-3375-4380-8E79-44693C8965BE}" Directory_="License_Dir" Attributes="0" KeyPath="SDKLicense.txt" Type="0"/>
+    <ROW Component="SDK_Example1.cpp" ComponentId="{9A1E1E5A-EE47-4FCB-B2B4-A9F5DE916E0C}" Directory_="sdk_example1_Dir" Attributes="0" KeyPath="SDK_Example1.cpp" Type="0"/>
+    <ROW Component="SDK_Example2.cpp" ComponentId="{DA9FF6A5-B5FA-4B9B-A07F-406B8672625B}" Directory_="sdk_example2_Dir" Attributes="0" KeyPath="SDK_Example2.cpp" Type="0"/>
+    <ROW Component="SDK_Example3.cpp" ComponentId="{E9721C09-1848-457D-9BDA-6764BAE6D889}" Directory_="sdk_example3_Dir" Attributes="0" KeyPath="SDK_Example3.cpp" Type="0"/>
+    <ROW Component="SETUP_FILE_NAME" ComponentId="{D5B3BB15-6652-44F9-84CF-0A3CE51771D9}" Directory_="APPDIR" Attributes="260" KeyPath="SETUP_FILE_NAME" Options="1"/>
+    <ROW Component="SHORTCUTDIR" ComponentId="{5BAE738F-379E-4994-B721-2A923BFADA09}" Directory_="SHORTCUTDIR" Attributes="0"/>
+    <ROW Component="compressonator.h" ComponentId="{25A4A56E-DEE6-4B24-9389-4EDA5B87F495}" Directory_="Header_Dir" Attributes="0" KeyPath="compressonator.h" Type="0"/>
+    <ROW Component="readme.txt" ComponentId="{82A6062F-9617-435C-A93A-13A87B1F936B}" Directory_="Samples_Dir" Attributes="0" KeyPath="README.md" Type="0"/>
   </COMPONENT>
   <COMPONENT cid="caphyon.advinst.msicomp.MsiFeatsComponent">
     <ROW Feature="MainFeature" Title="Compressonator SDK" Description="Description" Display="7" Level="1" Directory_="APPDIR" Attributes="24" Components="AI_CustomARPName AI_DisableModify AI_ExePath CMP_Framework_MD_DLL.lib CMP_Framework_MTd.lib Compressonator_MD_DLL.dll Compressonator_MD_DLL.dll_3 Compressonator_MDd_DLL.dll Compressonator_MDd_DLL.dll_2 Compressonator_MT_DLL.dll Compressonator_MT_DLL.dll_2 Compressonator_MTd_DLL.dll Compressonator_MTd_DLL.dll_1 DDS_Helpers.cpp_3 Name ProductInformation SDKLicense.txt SDK_Example1.cpp SDK_Example2.cpp SDK_Example3.cpp SETUP_FILE_NAME SHORTCUTDIR compressonator.h readme.txt"/>

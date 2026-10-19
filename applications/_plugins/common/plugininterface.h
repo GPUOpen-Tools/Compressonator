@@ -66,16 +66,17 @@ class CMP_Encoder
 public:
     CMP_Encoder()
     {
-        m_srcWidth  = 0;
-        m_srcHeight = 0;
-        m_srcStride = 0;
-        m_dstStride = 0;
-        m_xdim      = 4;
-        m_ydim      = 4;
-        m_zdim      = 1;
-        m_quality   = 0.05f;
+        m_srcWidth              = 0;
+        m_srcHeight             = 0;
+        m_srcBufferSizeInPixels = 0;
+        m_srcStride             = 0;
+        m_dstStride             = 0;
+        m_xdim                  = 4;
+        m_ydim                  = 4;
+        m_zdim                  = 1;
+        m_quality               = 0.05f;
     };
-    ~CMP_Encoder(){};
+    ~CMP_Encoder() {};
 
     // Block Level Processing
     virtual int CompressBlock(unsigned int xBlock, unsigned int yBlock, void* in, void* out)   = 0;
@@ -91,7 +92,24 @@ public:
     unsigned int m_srcWidth;
     unsigned int m_srcHeight;
 
-    // image strides
+    // Actual source buffer size in 4-channel pixels; the channel size depends on the source
+    // format (1 byte for 8-bit, 2 for BC6H half-float, 4 for 32-bit).
+    // Zero means "not set" (block-encoder API callers are trusted).
+    unsigned int m_srcBufferSizeInPixels;
+
+    // Image strides used by the (xBlock, yBlock) block-level CompressBlock() overload.
+    // Both are "advance per row of blocks", not per row of pixels, and both are optional:
+    // zero means "use the tightly packed default derived from m_srcWidth".
+    //
+    //   m_srcStride  Number of source pixel ELEMENTS (not bytes) to advance for each
+    //                increment of yBlock. A 4-row-high block means the tightly packed
+    //                default is m_srcWidth * 4, which is the value the shipped
+    //                framework examples pass explicitly.
+    //   m_dstStride  Number of destination BYTES to advance for each increment of yBlock.
+    //                The tightly packed default is ((m_srcWidth + 3) / 4) * <block bytes>.
+    //
+    // Only the BC1 encoder currently honours m_srcStride; the other block encoders assume
+    // the tightly packed layout.
     unsigned int m_srcStride;
     unsigned int m_dstStride;
 

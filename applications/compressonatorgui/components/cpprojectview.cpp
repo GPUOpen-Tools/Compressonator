@@ -314,6 +314,34 @@ ProjectView::ProjectView(const QString title, CompressStatusDialog* StatusDialog
     connect(m_newProjectwindow, SIGNAL(OnSetNewProject(QString&)), this, SLOT(onSetNewProject(QString&)));
 }
 
+// Pick the first free "<baseName>.cprj", "<baseName> (2).cprj", ... in dir.
+//
+// Redirected projects are opened WriteOnly, which truncates, so two different read only
+// projects that share a base name would otherwise overwrite each other's redirected copy.
+// Returns an empty string when no free candidate was found.
+static QString freeProjectFilePath(const QDir& dir, const QString& baseName)
+{
+    QString candidate = dir.absoluteFilePath(baseName + ".cprj");
+    for (int suffix = 2; QFileInfo::exists(candidate) && suffix < 1000; ++suffix)
+        candidate = dir.absoluteFilePath(QString("%1 (%2).cprj").arg(baseName).arg(suffix));
+
+    if (QFileInfo::exists(candidate))
+        return QString();
+
+    return candidate;
+}
+
+// Expands $(CMP_SAMPLES) in sample .cprj paths to CMP_GetSampleDataDir().
+static QString resolveProjectPath(const QString& path)
+{
+    if (!path.contains(CMP_PROJECT_SAMPLES_TOKEN))
+        return path;
+
+    QString resolved = path;
+    resolved.replace(CMP_PROJECT_SAMPLES_TOKEN, QString::fromStdString(CMP_GetSampleDataDir()));
+    return QDir::toNativeSeparators(QDir::cleanPath(resolved));
+}
+
 void ProjectView::setCurrentProjectName(QString filePathName)
 {
     QFileInfo fileInfo(filePathName);
@@ -327,16 +355,43 @@ void ProjectView::setCurrentProjectName(QString filePathName)
         filename = fileInfo2.completeBaseName();
     }
 
-    QFile file;
-    file.setFileName(filePathName);
-    bool isWritable = file.open(QIODevice::ReadWrite);
+    // Probe write access without ever creating or deleting the requested path: an earlier
+    // existence check cannot be trusted, so a project another process creates in between must
+    // not be opened and then removed. Qt 5.9 (Linux) has no exclusive-create open mode, so the
+    // no-file case probes the parent folder instead.
+    bool isWritable;
+    if (QFileInfo::exists(filePathName))
+    {
+        // ReadWrite does not truncate, and the file is left alone either way.
+        QFile file(filePathName);
+        isWritable = file.open(QIODevice::ReadWrite);
+        file.close();
+    }
+    else
+    {
+        isWritable = CMP_IsDirWritable(fileInfo.absolutePath().toStdString());
+    }
 
     if (!isWritable)
     {
-        QFileInfo fileInfo(m_curProjectFilePathName);
-        m_curProjectFilePathName = fileInfo.dir().path();
-        m_curProjectFilePathName.append(QDir::separator());
-        m_curProjectFilePathName.append(filename);
+        // Redirect relative to the REQUESTED path, not the previously loaded project: using
+        // the old project's directory silently sent a new project to an unrelated folder.
+        // If the requested folder is itself unwritable (e.g. a sample project under
+        // %ProgramFiles%), fall back to the per-user application data folder.
+        //
+        // The redirect target is writable, so saveProjectFile() opens (and truncates) it
+        // without reaching its own collision handling; the free candidate has to be chosen
+        // here, otherwise a second read only project with the same base name overwrites the
+        // first one's redirected copy.
+        QString appDataPath = QString::fromStdString(CMP_GetUserDataDir("projects"));
+        QString redirected;
+        if (!appDataPath.isEmpty())
+            redirected = freeProjectFilePath(QDir(appDataPath), filename);
+
+        if (!redirected.isEmpty())
+            m_curProjectFilePathName = redirected;
+        else
+            m_curProjectFilePathName = QDir(fileInfo.absolutePath()).absoluteFilePath(filename + ".cprj");
 #ifdef _WIN32
         m_curProjectFilePathName.replace("/", "\\");
 #endif
@@ -345,8 +400,6 @@ void ProjectView::setCurrentProjectName(QString filePathName)
     {
         m_curProjectFilePathName = filePathName;
     }
-
-    file.close();
 
     m_curProjectName = filename;
 
@@ -1789,8 +1842,35 @@ void ProjectView::saveProjectFile()
     QFile file(m_curProjectFilePathName);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
     {
-        //qDebug() << "Open file for writing failed";
-        return;
+        // Projects opened from a read only location, such as the samples installed under
+        // %ProgramFiles%, are redirected to the per user projects folder.
+        QString appDataPath = QString::fromStdString(CMP_GetUserDataDir("projects"));
+        QString redirected;
+        if (!appDataPath.isEmpty())
+        {
+            // The redirect target is opened WriteOnly, which truncates. Two different read only
+            // sample projects that share a base name would otherwise overwrite each other's
+            // redirected copy, so pick the first free "<name>.cprj", "<name> (2).cprj", ... .
+            redirected = freeProjectFilePath(QDir(appDataPath), QFileInfo(m_curProjectFilePathName).completeBaseName());
+        }
+
+        if (redirected.isEmpty() || redirected == m_curProjectFilePathName)
+        {
+            QMessageBox::warning(this, "Save Project", "Unable to save the project to " + m_curProjectFilePathName);
+            return;
+        }
+
+        file.setFileName(redirected);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+        {
+            QMessageBox::warning(this, "Save Project", "Unable to save the project to " + redirected);
+            return;
+        }
+
+        m_curProjectFilePathName = redirected;
+        m_curProjectName         = QFileInfo(redirected).completeBaseName();
+        if (m_parent)
+            m_parent->setWindowTitle(m_curProjectName);
     }
 
     QXmlStreamWriter xmlWriter(&file);
@@ -2128,7 +2208,7 @@ bool ProjectView::loadProjectFile(QString fileToLoad)
             //======
             // Get the File element  <Image File=".."/>
             QDomElement eleImage     = domImage.toElement();
-            QString     FilePathName = eleImage.attribute("File");
+            QString     FilePathName = resolveProjectPath(eleImage.attribute("File"));
 
             // Check if we have a file specified else igonore the node
             if (FilePathName.length() > 0)
@@ -2180,12 +2260,12 @@ bool ProjectView::loadProjectFile(QString fileToLoad)
                                         if (child.toElement().tagName() == "Source")
                                         {
                                             QDomElement eleDestination   = child.toElement();
-                                            m_data->m_sourceFileNamePath = eleDestination.text();
+                                            m_data->m_sourceFileNamePath = resolveProjectPath(eleDestination.text());
                                         }
                                         else if (child.toElement().tagName() == "Destination")
                                         {
                                             QDomElement eleDestination = child.toElement();
-                                            m_data->m_destFileNamePath = eleDestination.text();
+                                            m_data->m_destFileNamePath = resolveProjectPath(eleDestination.text());
 
                                             // V4.2 change to just load the files as is. No check done until its used
                                             // QFileInfo fileInfo(m_data->m_destFileNamePath);
@@ -2655,9 +2735,9 @@ void ProjectView::onSetNewProject(QString& FilePathName)
 {
     // Remove the old view
     clearProjectTreeView();
+    // setCurrentProjectName redirects to a writable folder when FilePathName is not writable
     setCurrentProjectName(FilePathName);
-    m_curProjectFilePathName = FilePathName;
-    m_saveProjectChanges     = false;
+    m_saveProjectChanges = false;
     if (m_CompressStatusDialog)
         m_CompressStatusDialog->onClearText();
     m_CurrentCompressedImageItem = NULL;
@@ -5923,6 +6003,11 @@ bool processItem(QFile*                  file,
                             else
                             {
                                 // Success in compression
+                                // CLI may redirect the output (e.g. read only install folder as cwd), so
+                                // sync the tree data to the actual file it wrote before checking for it.
+                                if (!g_CmdPrams.DestFile.empty())
+                                    data->m_destFileNamePath = QString::fromStdString(g_CmdPrams.DestFile);
+
                                 if (ProjectView->Tree_updateCompressIcon(Imageitem, data->m_destFileNamePath, true))
                                 {
                                     // Destination File Size

@@ -110,8 +110,8 @@ char* Plugin_BC1::TC_ComputeSourceFile(CGU_UINT32 Compute_type)
     return ("");
 }
 
-void Plugin_BC1::TC_Start(){};
-void Plugin_BC1::TC_End(){};
+void Plugin_BC1::TC_Start() {};
+void Plugin_BC1::TC_End() {};
 
 int Plugin_BC1::TC_Init(void* kernel_options)
 {
@@ -277,10 +277,38 @@ int BC1_EncodeClass::CompressBlock(CGU_UINT32 xBlock, CGU_UINT32 yBlock, void* s
         return (-1);
     }
 
-    int width_in_blocks = (m_srcWidth + 3) >> 2;
+    // Guard against integer overflow in m_srcWidth * m_srcHeight.
+    if (m_srcHeight > UINT32_MAX / m_srcWidth)
+        return (-1);  // prevent integer overflow
 
-    CGU_UINT32 srcStride = m_srcWidth * 4;
-    CGU_UINT32 dstStride = width_in_blocks * BC1CompBlockSize;
+    // Guard: reject if the actual source buffer (set by the HPC thread pool
+    // via m_srcBufferSizeInPixels) is smaller than the full pixel count implied by
+    // the claimed dimensions.  A value of 0 means "not set" (block-encoder API path
+    // that trusts the caller), so skip the check in that case.
+    CGU_UINT32 totalPixels = (CGU_UINT32)m_srcWidth * (CGU_UINT32)m_srcHeight;
+    if (m_srcBufferSizeInPixels > 0u && m_srcBufferSizeInPixels < totalPixels)
+        return (-1);  // source buffer too small for claimed dimensions
+
+    // Reject block coordinates outside the declared image before any offset is derived from them.
+    // The partial-block path below computes m_srcWidth - xBlock * BlockX, which underflows for an
+    // out-of-range block and indexes ImageSource out of bounds; destI would also run past cmpout.
+    if (xBlock >= ((m_srcWidth - 1) / BlockX) + 1 || yBlock >= ((m_srcHeight - 1) / BlockY) + 1)
+        return (-1);
+
+    // The default strides below are derived from m_srcWidth. Reject a width whose derived strides
+    // are not representable in 32 bits rather than silently wrapping into a small stride that
+    // would gather the wrong rows: accumulate in 64-bit and fail closed.
+    const CGU_UINT64 defaultSrcStride64 = (CGU_UINT64)m_srcWidth * 4;
+    const CGU_UINT64 widthInBlocks64    = ((CGU_UINT64)m_srcWidth + 3) >> 2;
+    const CGU_UINT64 defaultDstStride64 = widthInBlocks64 * BC1CompBlockSize;
+    if (defaultSrcStride64 > (CGU_UINT64)UINT32_MAX || defaultDstStride64 > (CGU_UINT64)UINT32_MAX)
+        return (-1);  // image width too large for the derived source/destination strides
+
+    // Units (see CMP_Encoder in plugininterface.h): srcStride advances srcindex, which indexes
+    // ImageSource as CMP_Vec4uc ELEMENTS, so it counts pixels - m_srcWidth * 4 is one row of
+    // 4-pixel-high blocks. dstStride advances destI, which indexes compressedBlocks as BYTES.
+    CGU_UINT32 srcStride = (CGU_UINT32)defaultSrcStride64;
+    CGU_UINT32 dstStride = (CGU_UINT32)defaultDstStride64;
 
     // user override!
     if (m_srcStride > 0)
@@ -288,34 +316,98 @@ int BC1_EncodeClass::CompressBlock(CGU_UINT32 xBlock, CGU_UINT32 yBlock, void* s
     if (m_dstStride > 0)
         dstStride = m_dstStride;
 
-    CGU_UINT32 destI    = (xBlock * BC1CompBlockSize) + (yBlock * dstStride);
-    int        srcindex = (yBlock * srcStride) + (4 * xBlock);
-    int        blkindex = 0;
+    // Accumulate the destination byte offset in 64-bit: with a caller-supplied dstStride,
+    // yBlock * dstStride can exceed UINT32_MAX and wrap back into the buffer. size_t is only
+    // 32 bits in the Win32 build, so the accumulation must not be done in size_t either.
+    const CGU_UINT64 destI64 = ((CGU_UINT64)xBlock * BC1CompBlockSize) + ((CGU_UINT64)yBlock * dstStride);
+    if (destI64 > (CGU_UINT64)UINT32_MAX - BC1CompBlockSize)
+        return (-1);  // stride/coordinate combination overflows the destination offset
+
+    CGU_UINT32 destI = (CGU_UINT32)destI64;
+
+    // Pixel offsets are accumulated in 64-bit for the same reason: with a caller-supplied stride,
+    // yBlock * srcStride can exceed UINT32_MAX for a source buffer that is otherwise valid and
+    // accepted above, and would wrap in a 32-bit size_t.
+    const CGU_UINT64 srcindex64 = ((CGU_UINT64)yBlock * srcStride) + ((CGU_UINT64)4 * xBlock);
+    if (srcindex64 > (CGU_UINT64)SIZE_MAX)
+        return (-1);  // stride/coordinate combination overflows the source index
+
+    size_t srcindex = (size_t)srcindex64;
+    int    blkindex = 0;
 
     CMP_Vec4uc srcData[16];
+
+    // srcStride is the element advance for 4 rows (one yBlock, per plugininterface.h): the
+    // per-row element advance used below to walk rows gathered from ImageSource must be
+    // srcStride / 4, not m_srcWidth, in both the complete- and partial-block paths below.
+    // Using m_srcWidth here silently discards a caller-supplied stride that does not match
+    // the tightly-packed default, reading the wrong (or out-of-buffer) pixel rows.
+    if ((srcStride % 4) != 0)
+        return (-1);  // stride is not a whole number of pixel rows
+    const CGU_UINT32 rowStride = srcStride / 4;
 
     //Check if it is a complete 4X4 block
     if (((xBlock + 1) * BlockX <= m_srcWidth) && ((yBlock + 1) * BlockY <= m_srcHeight))
     {
+        if (rowStride < BlockX)
+            return (-1);  // a complete block reads BlockX columns, so a row must be that wide
+
+        // The gather reads four pixel rows starting at srcindex, advancing rowStride per row, so
+        // a caller-supplied m_srcStride must not push the last read past the accepted pixel count.
+        // Accumulated in 64-bit so it cannot wrap in a 32-bit size_t.
+        const CGU_UINT64 lastIndexOffset = 3 * (CGU_UINT64)rowStride + 3;
+        if (srcindex64 > UINT64_MAX - lastIndexOffset)
+            return (-1);  // source index addition overflows before the last-read bounds check
+        const CGU_UINT64 lastIndex = srcindex64 + lastIndexOffset;
+        if (m_srcBufferSizeInPixels > 0u && lastIndex >= (CGU_UINT64)m_srcBufferSizeInPixels)
+            return (-1);  // stride/dimension combination reads past the source buffer
+        if (lastIndex > (CGU_UINT64)SIZE_MAX)
+            return (-1);  // last read index is not representable as a source index
+
         for (int j = 0; j < 4; j++)
         {
             for (int i = 0; i < 4; i++)
             {
                 memcpy(&srcData[blkindex++], &ImageSource[srcindex++], sizeof(CMP_Vec4uc));
             }
-            srcindex += (m_srcWidth - 4);
+            srcindex += (rowStride - 4);
         }
     }
     else
     {
-        CMP_DWORD dwWidth = CMP_MIN(static_cast<unsigned int>(BlockX), m_srcWidth - xBlock * BlockX);
-        CMP_DWORD i, j, srcIndex;
+        CMP_DWORD dwWidth  = CMP_MIN(static_cast<unsigned int>(BlockX), m_srcWidth - xBlock * BlockX);
+        CMP_DWORD rowsUsed = CMP_MIN(static_cast<unsigned int>(BlockY), m_srcHeight - yBlock * BlockY);
+        CMP_DWORD i, j;
+        size_t    srcIndex;
+
+        // A partial block reads only the dwWidth columns that exist, so unlike the complete-block
+        // path the row may legitimately be narrower than BlockX -- an image narrower than one
+        // block (the tail of every mipmap chain) has a default rowStride of m_srcWidth. Require
+        // only that the row actually spans the columns this block reads.
+        if (rowStride < xBlock * BlockX + dwWidth)
+            return (-1);  // row does not span the columns this block reads
+
+        // Same reasoning as the complete-block path above: bound the last pixel this partial
+        // block will read against the caller-reported buffer capacity before touching memory.
+        if (rowsUsed > 0 && dwWidth > 0)
+        {
+            const CGU_UINT64 lastIndex = (CGU_UINT64)(yBlock * BlockY + rowsUsed - 1) * rowStride + (CGU_UINT64)(xBlock * BlockX) + (dwWidth - 1);
+            if (m_srcBufferSizeInPixels > 0u && lastIndex >= (CGU_UINT64)m_srcBufferSizeInPixels)
+                return (-1);  // stride/dimension combination reads past the source buffer
+        }
 
         //Go through line by line
         for (j = 0; j < BlockY && (BlockY * yBlock + j) < m_srcHeight; j++)
         {
             //Copy the real data
-            srcIndex = ((yBlock * BlockY + j) * m_srcWidth + (xBlock * BlockX));
+            // Accumulate in 64-bit before narrowing to size_t: with a caller-supplied stride,
+            // yBlock * rowStride can exceed UINT32_MAX even though the total pixel count check
+            // above passed, so the multiplication must not be done in 32-bit CMP_DWORD (matches
+            // the accumulation pattern used for srcindex64 in the complete-block path above).
+            const CGU_UINT64 srcIndex64 = (CGU_UINT64)(yBlock * BlockY + j) * rowStride + (CGU_UINT64)(xBlock * BlockX);
+            if (srcIndex64 > (CGU_UINT64)SIZE_MAX)
+                return (-1);  // stride/coordinate combination overflows the source index
+            srcIndex = (size_t)srcIndex64;
             for (i = 0; i < dwWidth; i++)
             {
                 memcpy(&srcData[j * BlockX + i], &ImageSource[srcIndex + i], sizeof(CMP_Vec4uc));

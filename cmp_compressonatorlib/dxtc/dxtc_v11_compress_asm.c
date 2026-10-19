@@ -635,7 +635,7 @@ void __declspec(naked) __cdecl DXTCV11CompressBlockSSE(DWORD *block_32, DWORD *b
             movaps xmm7, RIGHT
             mulps RIGHT, [ecx]            // split point
             addps xmm7, LEFT
-            mulps xmm7, [half]            // centre (probably 0, but what the hell)
+            mulps xmm7, [half]            // centre (probably 0)
 
             lea esi, [ebp-EBP_POS_ON_AXIS]
             lea edx, [expandtable]
@@ -1027,7 +1027,7 @@ map_axis_loop:
         movaps    xmm7, RIGHT
         mulps    RIGHT,[ecx]                    // split point
         addps    xmm7, LEFT
-        mulps    xmm7,[half]                    // centre (probably 0, but what the hell)
+        mulps    xmm7,[half]                    // centre (probably 0)
 
         lea        esi,[ebp - EBP_POS_ON_AXIS]
         lea        edx,[expandtable]

@@ -139,6 +139,42 @@ static CMP_FORMAT Get32FVariation(CMP_FORMAT srcFormat)
     }
 }
 
+// True when a buffer of bufferSize bytes holds at least numElements elements of elementSize bytes.
+// Written as a division so the element count can never overflow the comparison.
+static bool BufferHasElements(CMP_DWORD bufferSize, CMP_DWORD numElements, CMP_DWORD elementSize)
+{
+    if (elementSize == 0)
+        return false;
+
+    return numElements <= bufferSize / elementSize;
+}
+
+// Channels per pixel for the float formats that Get16FVariation()/Get32FVariation() can relabel.
+// Returns 0 for anything else, because converting those would leave the result mislabelled.
+static int GetFloatFormatChannelCount(CMP_FORMAT format)
+{
+    switch (format)
+    {
+    case CMP_FORMAT_R_16F:
+    case CMP_FORMAT_R_32F:
+        return 1;
+    case CMP_FORMAT_RG_16F:
+    case CMP_FORMAT_RG_32F:
+        return 2;
+    case CMP_FORMAT_ABGR_16F:
+    case CMP_FORMAT_ABGR_32F:
+    case CMP_FORMAT_ARGB_16F:
+    case CMP_FORMAT_ARGB_32F:
+    case CMP_FORMAT_BGRA_16F:
+    case CMP_FORMAT_BGRA_32F:
+    case CMP_FORMAT_RGBA_16F:
+    case CMP_FORMAT_RGBA_32F:
+        return 4;
+    default:
+        return 0;
+    }
+}
+
 ConvertedBuffer CreateCompatibleBuffer(CMP_FORMAT         targetFormat,
                                        CMP_FORMAT         srcFormat,
                                        void*              srcData,
@@ -147,62 +183,120 @@ ConvertedBuffer CreateCompatibleBuffer(CMP_FORMAT         targetFormat,
                                        CMP_DWORD          srcHeight,
                                        const FloatParams* params)
 {
-    // TODO: We assume the formats have 4 channels, but we should actually calculate the number of channels
+    // The branches below all emit an ARGB/RGBA result, so they are 4-channel by construction;
+    // the size checks reject anything narrower rather than over-reading the source.
     static const int numChannels = 4;
 
     CMP_ChannelFormat targetChannelFormat = GetChannelFormat(targetFormat);
     CMP_ChannelFormat srcChannelFormat    = GetChannelFormat(srcFormat);
+
+    // GetChannelFormat() has no case for RGBE and falls back to CF_8bit, which FloatToByte()
+    // rejects. The data is really the packed 4 byte layout that CF_Float9995E describes.
+    if (srcFormat == CMP_FORMAT_RGBE_32F)
+        srcChannelFormat = CF_Float9995E;
 
     ConvertedBuffer result = {};
     result.data            = srcData;
     result.dataSize        = srcDataSize;
     result.format          = srcFormat;
 
-    bool isSrcFloat = CMP_IsFloatFormat(srcFormat);
+    bool isSrcFloat      = CMP_IsFloatFormat(srcFormat);
+    bool isSrcCompressed = CMP_IsCompressedFormat(srcFormat);
 
-    bool isTargetFloat      = CMP_IsFloatFormat(targetFormat);
-    bool isTargetCompressed = CMP_IsCompressedFormat(targetFormat);
-    bool isTargetSigned     = targetFormat == CMP_FORMAT_BC4_S || targetFormat == CMP_FORMAT_BC5_S || targetFormat == CMP_FORMAT_BC6H_SF;
+    bool isTargetFloat  = CMP_IsFloatFormat(targetFormat);
+    bool isTargetSigned = targetFormat == CMP_FORMAT_BC4_S || targetFormat == CMP_FORMAT_BC5_S || targetFormat == CMP_FORMAT_BC6H_SF;
+
+    // Guard against integer overflow in width * height before any allocation or conversion.
+    // Zero dimensions are rejected outright: they would reach calloc(0, ...), whose return value
+    // is implementation defined and indistinguishable from an allocation failure.
+    if (srcWidth == 0 || srcHeight == 0 || srcHeight > UINT32_MAX / srcWidth)
+        return {};
 
     CMP_DWORD numPixels = srcWidth * srcHeight;
 
-    if (isSrcFloat && isTargetFloat && srcChannelFormat != targetChannelFormat)
-    {
-        if (targetChannelFormat == CF_Float32 && srcChannelFormat == CF_Float16)
-        {
-            CMP_FLOAT* tempData = (CMP_FLOAT*)calloc(1, sizeof(CMP_FLOAT) * numPixels * numChannels);
+    // Every allocation below is sized from numPixels * numChannels
+    if (numPixels > UINT32_MAX / (CMP_DWORD)numChannels)
+        return {};
 
-            HalfShortToFloat(tempData, (CMP_HALFSHORT*)srcData, numPixels * numChannels);
+    const CMP_DWORD numElements = numPixels * (CMP_DWORD)numChannels;
+
+    // Only uncompressed Float16<->Float32 pairs are repacked here. Any other float mismatch
+    // (notably a compressed float source such as BC6H, whose channel format is not CF_Float*)
+    // is left untouched for the codec to handle.
+    const bool isHalfToFloat = targetChannelFormat == CF_Float32 && srcChannelFormat == CF_Float16;
+    const bool isFloatToHalf = targetChannelFormat == CF_Float16 && srcChannelFormat == CF_Float32;
+
+    if (isSrcFloat && isTargetFloat && (isHalfToFloat || isFloatToHalf))
+    {
+        // These two branches keep the source channel layout, so they can use the real channel
+        // count instead of the 4-channel assumption the rest of this function makes.
+        const int srcFloatChannels = GetFloatFormatChannelCount(srcFormat);
+        if (srcFloatChannels == 0 || numPixels > UINT32_MAX / (CMP_DWORD)srcFloatChannels)
+            return {};
+
+        const CMP_DWORD numFloatElements = numPixels * (CMP_DWORD)srcFloatChannels;
+
+        if (isHalfToFloat)
+        {
+            // srcData must really hold numFloatElements half floats, and the resulting
+            // byte count has to stay representable in the CMP_DWORD dataSize field.
+            if (!BufferHasElements(srcDataSize, numFloatElements, (CMP_DWORD)sizeof(CMP_HALFSHORT)) ||
+                numFloatElements > UINT32_MAX / (CMP_DWORD)sizeof(CMP_FLOAT))
+                return {};
+
+            CMP_FLOAT* tempData = (CMP_FLOAT*)calloc(numFloatElements, sizeof(CMP_FLOAT));
+            if (!tempData)
+                return {};
+
+            HalfShortToFloat(tempData, (CMP_HALFSHORT*)srcData, numFloatElements);
 
             result.data        = tempData;
-            result.dataSize    = sizeof(CMP_FLOAT) * numChannels * numPixels;
+            result.dataSize    = sizeof(CMP_FLOAT) * numFloatElements;
             result.format      = Get32FVariation(srcFormat);
             result.isBufferNew = true;
         }
-        else if (targetChannelFormat == CF_Float16 && srcChannelFormat == CF_Float32)
+        else if (isFloatToHalf)
         {
-            CMP_HALFSHORT* tempData = (CMP_HALFSHORT*)calloc(1, sizeof(CMP_HALFSHORT) * numPixels * numChannels);
+            // srcData must really hold numFloatElements floats, and the resulting byte
+            // count has to stay representable in the CMP_DWORD dataSize field.
+            if (!BufferHasElements(srcDataSize, numFloatElements, (CMP_DWORD)sizeof(CMP_FLOAT)) ||
+                numFloatElements > UINT32_MAX / (CMP_DWORD)sizeof(CMP_HALFSHORT))
+                return {};
 
-            FloatToHalfShort(tempData, (CMP_FLOAT*)srcData, numPixels * numChannels);
+            CMP_HALFSHORT* tempData = (CMP_HALFSHORT*)calloc(numFloatElements, sizeof(CMP_HALFSHORT));
+            if (!tempData)
+                return {};
+
+            FloatToHalfShort(tempData, (CMP_FLOAT*)srcData, numFloatElements);
 
             result.data        = tempData;
-            result.dataSize    = sizeof(CMP_HALFSHORT) * numPixels * numChannels;
+            result.dataSize    = sizeof(CMP_HALFSHORT) * numFloatElements;
             result.format      = Get16FVariation(srcFormat);
             result.isBufferNew = true;
         }
     }
-    else if (isSrcFloat && !isTargetFloat)
+    else if (isSrcFloat && !isTargetFloat && !isSrcCompressed)
     {
-        CMP_BYTE* byteData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
+        // Compressed float sources (BC6H, BC6H_SF) are excluded: their payload is not the raw
+        // float samples FloatToByte() expects, so they are left for the codec to decode.
+        CMP_BYTE* byteData = (CMP_BYTE*)calloc(numElements, 1);
+        if (!byteData)
+            return {};
 
         FloatParams tempParams = FloatParams();
         if (params)
             tempParams = *params;
 
-        FloatToByte(byteData, (CMP_FLOAT*)srcData, srcChannelFormat, srcWidth, srcHeight, &tempParams);
+        CMP_ERROR err = FloatToByte(byteData, numElements, (CMP_FLOAT*)srcData, srcDataSize, srcChannelFormat, srcWidth, srcHeight, &tempParams);
+
+        if (err != CMP_OK)
+        {
+            free(byteData);
+            return {};
+        }
 
         result.data        = byteData;
-        result.dataSize    = numPixels * numChannels;
+        result.dataSize    = numElements;
         result.format      = CMP_FORMAT_ARGB_8888;
         result.isBufferNew = true;
     }
@@ -216,32 +310,57 @@ ConvertedBuffer CreateCompatibleBuffer(CMP_FORMAT         targetFormat,
 
         if (srcFormat == CMP_FORMAT_RGBA_8888_S)
         {
-            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
-            SByteToByte(byteData, (CMP_SBYTE*)srcData, numPixels * numChannels);
+            // srcData must really hold numElements signed bytes.
+            if (!BufferHasElements(srcDataSize, numElements, 1))
+                return {};
+
+            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numElements, 1);
+            if (!byteData)
+                return {};
+
+            SByteToByte(byteData, (CMP_SBYTE*)srcData, numElements);
 
             intermediateBuffer.data        = byteData;
+            intermediateBuffer.dataSize    = numElements;
             intermediateBuffer.format      = CMP_FORMAT_ARGB_8888;
             intermediateBuffer.isBufferNew = true;
         }
         else if (srcFormat == CMP_FORMAT_RGBA_1010102)
         {
-            CMP_BYTE* tempData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
+            // srcData must really hold numPixels packed 32 bit pixels.
+            if (!BufferHasElements(srcDataSize, numPixels, (CMP_DWORD)sizeof(CMP_DWORD)))
+                return {};
+
+            CMP_BYTE* tempData = (CMP_BYTE*)calloc(numElements, 1);
+            if (!tempData)
+                return {};
 
             // disable the alpha channel of RGBA1010102 images because some of our test images had badly set alpha values,
             // resulting in undesirable outcomes for users
             ConvertRGBA1010102ToRGBA8888(tempData, srcData, numPixels, false);
 
             intermediateBuffer.data        = tempData;
+            intermediateBuffer.dataSize    = numElements;
             intermediateBuffer.format      = CMP_FORMAT_RGBA_8888;
             intermediateBuffer.isBufferNew = true;
         }
 
-        CMP_HALFSHORT* halfShortData = (CMP_HALFSHORT*)calloc(numPixels * numChannels, sizeof(CMP_HALFSHORT));
+        // the intermediate buffer (which is srcData itself when no conversion ran above)
+        // must really hold numElements bytes, and the result size has to fit a CMP_DWORD.
+        if (!BufferHasElements(intermediateBuffer.dataSize, numElements, 1) || numElements > UINT32_MAX / (CMP_DWORD)sizeof(CMP_HALFSHORT))
+            return {};
 
-        ByteToHalfShort(halfShortData, (CMP_BYTE*)intermediateBuffer.data, numPixels * numChannels);
+        CMP_HALFSHORT* halfShortData = (CMP_HALFSHORT*)calloc(numElements, sizeof(CMP_HALFSHORT));
+        if (!halfShortData)
+            return {};
+
+        ByteToHalfShort(halfShortData, (CMP_BYTE*)intermediateBuffer.data, numElements);
+
+        // intermediateBuffer owns any buffer it allocated and releases it in its destructor;
+        // freeing it explicitly here would be a double free.
 
         result.data        = halfShortData;
-        result.dataSize    = numPixels * numChannels * 2;
+        result.dataSize    = numElements * (CMP_DWORD)sizeof(CMP_HALFSHORT);
         result.format      = CMP_FORMAT_RGBA_16F;  // CMP_FORMAT_ARGB_16F;
         result.isBufferNew = true;
     }
@@ -253,34 +372,54 @@ ConvertedBuffer CreateCompatibleBuffer(CMP_FORMAT         targetFormat,
 
         if (srcFormat == CMP_FORMAT_RGBA_1010102 && targetBitSize == 8)
         {
-            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
+            // srcData must really hold numPixels packed 32 bit pixels.
+            if (!BufferHasElements(srcDataSize, numPixels, (CMP_DWORD)sizeof(CMP_DWORD)))
+                return {};
+
+            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numElements, 1);
+            if (!byteData)
+                return {};
 
             // disable the alpha channel of RGBA1010102 images because some of our test images had badly set alpha values,
             // resulting in undesirable outcomes for users
             ConvertRGBA1010102ToRGBA8888(byteData, srcData, numPixels, false);
 
             result.data        = byteData;
-            result.dataSize    = numPixels * numChannels;
+            result.dataSize    = numElements;
             result.format      = CMP_FORMAT_RGBA_8888;
             result.isBufferNew = true;
         }
         else if (srcBitSize != targetBitSize)
         {
-            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
-            WordToByte(byteData, (CMP_WORD*)srcData, numPixels * numChannels);
+            // srcData must really hold numElements 16 bit words.
+            if (!BufferHasElements(srcDataSize, numElements, (CMP_DWORD)sizeof(CMP_WORD)))
+                return {};
+
+            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numElements, 1);
+            if (!byteData)
+                return {};
+
+            WordToByte(byteData, (CMP_WORD*)srcData, numElements);
 
             result.data        = byteData;
-            result.dataSize    = numPixels * numChannels;
+            result.dataSize    = numElements;
             result.format      = CMP_FORMAT_ARGB_8888;
             result.isBufferNew = true;
         }
         else if (srcBitSize == targetBitSize && srcFormat == CMP_FORMAT_RGBA_8888_S && !isTargetSigned)
         {
-            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numPixels * numChannels, 1);
-            SByteToByte(byteData, (CMP_SBYTE*)srcData, numPixels * numChannels);
+            // srcData must really hold numElements signed bytes.
+            if (!BufferHasElements(srcDataSize, numElements, 1))
+                return {};
+
+            CMP_BYTE* byteData = (CMP_BYTE*)calloc(numElements, 1);
+            if (!byteData)
+                return {};
+
+            SByteToByte(byteData, (CMP_SBYTE*)srcData, numElements);
 
             result.data        = byteData;
-            result.dataSize    = numPixels * numChannels;
+            result.dataSize    = numElements;
             result.format      = CMP_FORMAT_ARGB_8888;
             result.isBufferNew = true;
         }
@@ -345,7 +484,14 @@ static float FindKneeValue(float x, float y)
     return (f0 + f1) / 2.f;
 }
 
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, CMP_ChannelFormat channelFormat, CMP_DWORD width, CMP_DWORD height, const FloatParams* params)
+CMP_ERROR FloatToByte(CMP_BYTE*          outBuffer,
+                      CMP_DWORD          outBufferSize,
+                      CMP_FLOAT*         inBuffer,
+                      CMP_DWORD          inBufferSize,
+                      CMP_ChannelFormat  channelFormat,
+                      CMP_DWORD          width,
+                      CMP_DWORD          height,
+                      const FloatParams* params)
 {
     assert(outBuffer);
     assert(inBuffer);
@@ -355,6 +501,39 @@ CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, CMP_ChannelForma
         return CMP_ERR_INVALID_SOURCE_TEXTURE;
     if (!outBuffer)
         return CMP_ERR_INVALID_DEST_TEXTURE;
+    // params is dereferenced unconditionally below; the assert above is compiled out in release.
+    if (!params)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+    // Guard against integer overflow in width * height
+    if (width > 0 && height > UINT32_MAX / width)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+    const CMP_DWORD numPixels = width * height;
+
+    if (numPixels > 0)
+    {
+        // Determine the per-pixel byte size of the input buffer based on channel format
+        CMP_DWORD bytesPerPixelIn = 0;
+        if (channelFormat == CF_Float16)
+            bytesPerPixelIn = 4u * static_cast<CMP_DWORD>(sizeof(CMP_HALF));  // 8 bytes/pixel (4x float16)
+        else if (channelFormat == CF_Float32)
+            bytesPerPixelIn = 4u * static_cast<CMP_DWORD>(sizeof(CMP_FLOAT));  // 16 bytes/pixel (4x float32)
+        else if (channelFormat == CF_Float9995E)
+            bytesPerPixelIn = static_cast<CMP_DWORD>(sizeof(CMP_DWORD));  // 4 bytes/pixel (packed R9G9B9E5)
+        else
+            return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+        // Validate input buffer is large enough for the declared dimensions.
+        // Written as division to avoid overflow: numPixels * bytesPerPixelIn > inBufferSize
+        if (numPixels > inBufferSize / bytesPerPixelIn)
+            return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+        // Validate output buffer is large enough: always 4 bytes/pixel (RGBA8888 output).
+        // Written as division to avoid overflow: numPixels * 4 > outBufferSize
+        if (numPixels > outBufferSize / 4u)
+            return CMP_ERR_INVALID_DEST_TEXTURE;
+    }
 
     CMP_FLOAT* floatData     = inBuffer;
     CMP_HALF*  halfFloatData = (CMP_HALF*)inBuffer;
@@ -366,7 +545,10 @@ CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, CMP_ChannelForma
     const float invGamma    = 1 / params->gamma;  //for gamma correction
     const float scale       = (float)255.0 * powf(luminance3f, invGamma);
 
-    int outIndex = 0;
+    // Unsigned so the byte offset can address the whole range permitted by the output-size guard
+    // above (up to UINT32_MAX / 4 pixels); a signed int would overflow first.
+    CMP_DWORD outIndex = 0;
+
     for (unsigned int y = 0; y < height; ++y)
     {
         for (unsigned int x = 0; x < width; ++x)
@@ -491,14 +673,28 @@ CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, CMP_ChannelForma
 
     return CMP_OK;
 }
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, const MipSet* srcMipSet, const FloatParams* params)
+CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_DWORD outBufferSize, CMP_FLOAT* inBuffer, const MipSet* srcMipSet, const FloatParams* params)
 {
-    return FloatToByte(outBuffer, inBuffer, srcMipSet->m_ChannelFormat, srcMipSet->dwWidth, srcMipSet->dwHeight, params);
+    if (!srcMipSet)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+    const CMP_DWORD width  = static_cast<CMP_DWORD>(srcMipSet->dwWidth);
+    const CMP_DWORD height = static_cast<CMP_DWORD>(srcMipSet->dwHeight);
+
+    // OutBufferSize is the caller's real allocation size. Deriving it from
+    // width * height * 4 here would only restate the required size and would let an
+    // undersized destination through, which is exactly what the core overload checks.
+    return FloatToByte(outBuffer, outBufferSize, inBuffer, srcMipSet->dwDataSize, srcMipSet->m_ChannelFormat, width, height, params);
 }
-CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_FLOAT* inBuffer, const CMP_Texture* srcTexture, const FloatParams* params)
+CMP_ERROR FloatToByte(CMP_BYTE* outBuffer, CMP_DWORD outBufferSize, CMP_FLOAT* inBuffer, const CMP_Texture* srcTexture, const FloatParams* params)
 {
-    CMP_ChannelFormat channelFormat = GetChannelFormat(srcTexture->format);
-    return FloatToByte(outBuffer, inBuffer, channelFormat, srcTexture->dwWidth, srcTexture->dwHeight, params);
+    if (!srcTexture)
+        return CMP_ERR_INVALID_SOURCE_TEXTURE;
+
+    const CMP_ChannelFormat channelFormat = GetChannelFormat(srcTexture->format);
+
+    // See the MipSet overload above -- outBufferSize must come from the caller.
+    return FloatToByte(outBuffer, outBufferSize, inBuffer, srcTexture->dwDataSize, channelFormat, srcTexture->dwWidth, srcTexture->dwHeight, params);
 }
 
 CMP_ERROR HalfShortToFloat(CMP_FLOAT* outBuffer, CMP_HALFSHORT* inBuffer, CMP_DWORD numElements)

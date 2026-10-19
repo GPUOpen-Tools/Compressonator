@@ -25,6 +25,7 @@
 //=====================================================================
 
 #include "pluginmanager.h"
+#include "cmp_plugininterface.h"
 
 // Windows Header Files:
 #ifdef _WIN32
@@ -158,14 +159,41 @@ PluginManager::PluginManager()
 {
     //printf("%s\n", __FUNCTION__);
 
-    m_pluginlistset = false;
+    m_pluginlistset           = false;
+    m_dynamicscandisabled     = false;
+    m_pathsearchrestricted    = false;
+    m_isProcessGlobalInstance = false;
+}
+
+void PluginManager::disableDynamicPluginScan()
+{
+    m_dynamicscandisabled = true;
+}
+
+void PluginManager::restrictPluginSearchToApplicationDirectory()
+{
+    m_pathsearchrestricted = true;
+}
+
+void PluginManager::markAsProcessGlobalInstance()
+{
+    m_isProcessGlobalInstance = true;
 }
 
 PluginManager::~PluginManager()
 {
     //printf("%s\n", __FUNCTION__);
 
+    // Only the process-lifetime global instance is destroyed during CRT process exit, where
+    // FreeLibrary() can deadlock the Windows loader against a driver DLL's thread-detach
+    // handler. A locally scoped instance is destroyed mid-process (or at least not under that
+    // race) and must not flip the shared static, since doing so could suppress FreeLibrary for
+    // another, still-running PluginManager instance.
+    if (m_isProcessGlobalInstance)
+        PluginDetails::s_inProcessTeardown = true;
     clearPluginList();
+    if (m_isProcessGlobalInstance)
+        PluginDetails::s_inProcessTeardown = false;
 }
 
 void PluginManager::registerStaticPlugin(char* pluginType, char* pluginName, void* makePlugin)
@@ -270,6 +298,12 @@ void PluginManager::getPluginList(char* SubFolderName, bool append)
 {
     //printf("%s\n", __FUNCTION__);
 
+    // A host that only wants statically registered plugins (see disableDynamicPluginScan())
+    // must never reach the directory scan below, not even through an indirect caller such as
+    // CMP_RegisterHostPlugins().
+    if (m_dynamicscandisabled)
+        return;
+
     // Check for prior setting, if set clear for new one
     if (m_pluginlistset)
     {
@@ -286,29 +320,12 @@ void PluginManager::getPluginList(char* SubFolderName, bool append)
     char             fname[MAX_PATH];
 
     //----------------------------------
-    // Load plugin List for processing
-    // Use an Enviornment var, search through systems path
-    // or use default app running folder.
+    // Load plugin List for processing.
+    // Use the current exe directory, falling back to a PATH search.
     //----------------------------------
-    char dirPath[MAX_PATH];
+    char   dirPath[MAX_PATH];
+    size_t len = 0;
 
-    // v2.1 change - to check if path exists in PATH or AMDCOMPRESS_PLUGINS is set
-    // else use current exe directory
-    char*  pPath;
-    size_t len;
-
-#ifdef _WIN32
-    _dupenv_s(&pPath, &len, "AMDCOMPRESS_PLUGINS");
-#else
-    pPath = getenv("AMDCOMPRESS_PLUGINS") + '\0';
-    len   = strlen(pPath);
-#endif
-
-    if (len > 0)
-    {
-        snprintf(dirPath, 260, "%s", pPath + '\0');
-    }
-    else
     {
         bool pathFound = false;
 
@@ -347,34 +364,51 @@ void PluginManager::getPluginList(char* SubFolderName, bool append)
 
         if (!pathFound)
         {
-#ifdef _WIN32
-            _dupenv_s(&pPath, &len, "PATH");
-#else
-            pPath = getenv("PATH");
-            len   = strlen(pPath);
-#endif
-            if (len > 0)
+            if (m_pathsearchrestricted)
             {
-                std::string s = pPath;
-
-                char   delimiter = ';';
-                size_t pos       = 0;
-
-                std::string token;
-
-                while ((pos = s.find(delimiter)) != std::string::npos)
+                // The host application restricted plugin loading to the application directory
+                // (see restrictPluginSearchToApplicationDirectory()); honour that here too.
+                printf(
+                    "Warning: no plugins found in the application directory. The PATH search is disabled\n"
+                    "         because the host application restricted plugin loading to that directory.\n");
+            }
+            else
+            {
+                char*  pEnvPath = NULL;
+                size_t envLen   = 0;
+#ifdef _WIN32
+                _dupenv_s(&pEnvPath, &envLen, "PATH");
+#else
+                pEnvPath = getenv("PATH");
+                envLen   = pEnvPath ? strlen(pEnvPath) : 0;
+#endif
+                if (pEnvPath && envLen > 0)
                 {
-                    token = s.substr(0, pos);
-                    snprintf(dirPath, 260, "%s\\compressonatorCLI.exe", token.c_str());
-                    if (fileExists(dirPath))
+                    std::string s = pEnvPath;
+
+                    char   delimiter = ';';
+                    size_t pos       = 0;
+
+                    std::string token;
+
+                    while ((pos = s.find(delimiter)) != std::string::npos)
                     {
-                        snprintf(dirPath, 260, "%s", token.c_str());
-                        strcat_s(dirPath, SubFolderName);
-                        pathFound = true;
-                        break;
+                        token = s.substr(0, pos);
+                        snprintf(dirPath, sizeof(dirPath), "%s\\compressonatorCLI.exe", token.c_str());
+                        if (fileExists(dirPath))
+                        {
+                            snprintf(dirPath, sizeof(dirPath), "%s", token.c_str());
+                            strcat_s(dirPath, SubFolderName);
+                            pathFound = true;
+                            break;
+                        }
+                        s.erase(0, pos + sizeof(delimiter));
                     }
-                    s.erase(0, pos + sizeof(delimiter));
                 }
+#ifdef _WIN32
+                // _dupenv_s() allocates; the caller owns the buffer.
+                free(pEnvPath);
+#endif
             }
         }
     }
@@ -696,10 +730,30 @@ void PluginManager::getPluginListOptionNames(char* pluginType, unsigned long opt
 
 //----------------------------------------------
 
+bool PluginDetails::s_inProcessTeardown = false;
+
 PluginDetails::~PluginDetails()
 {
 #ifdef _WIN32
-    if (dllHandle)
+    // PluginManager::clearPluginList() runs from PluginManager's own destructor, i.e. from a
+    // global/static-storage-duration object's teardown during CRT process exit. At that point
+    // other threads may concurrently be running loader-driven DLL_THREAD_DETACH notifications
+    // (e.g. from GPU vendor driver DLLs pulled in by the "PIPELINE"/"GPUDECODE" plugins -
+    // amdocl64.dll/amd_comgr for OCL, D3D12/DXC/Vulkan loaders for GPU/DXC/GPUDECODE), and
+    // FreeLibrary() here can contend the Windows loader lock against them in the opposite
+    // order, deadlocking the process at exit (confirmed via live cdb stack capture: main thread
+    // blocked in LdrpDrainWorkQueue from this FreeLibrary, a second thread blocked in
+    // ucrtbase!register_onexit_function from a driver DLL's own thread-detach handler). The
+    // race depends on how busy those drivers are, so it is not reliably hit by every run.
+    //
+    // The OS unconditionally reclaims all DLL mappings when the process exits, so unloading is
+    // not required for correctness - only for returning memory earlier, which does not matter
+    // moments before exit. Leak the handle (skip FreeLibrary) only for these GPU-driver-backed
+    // plugin categories AND only while PluginManager's destructor is running; every other
+    // plugin type, and every mid-process teardown (a getPluginList() refresh or RemovePlugin()),
+    // keeps unloading exactly as before so modules do not accumulate during a long run.
+    bool isGpuDriverBackedPlugin = (strcmp(pluginType, "PIPELINE") == 0) || (strcmp(pluginType, "GPUDECODE") == 0);
+    if (dllHandle && !(isGpuDriverBackedPlugin && s_inProcessTeardown))
         FreeLibrary(dllHandle);
 #endif
     clearMembers();
@@ -772,7 +826,15 @@ void* PluginDetails::makeNewInstance()
             funcHandle = reinterpret_cast<PLUGIN_FACTORYFUNC>(GetProcAddress(dllHandle, "makePlugin"));
             if (funcHandle != NULL)
             {
-                return funcHandle();
+                std::unique_ptr<PluginBase> plugin(static_cast<PluginBase*>(funcHandle()));
+                if (!plugin)
+                    return NULL;
+
+                TC_PluginVersion version = {};
+                if (plugin->TC_PluginGetVersion(&version) != PE_OK || version.dwAPIVersionMajor != TC_API_VERSION_MAJOR)
+                    return NULL;
+
+                return plugin.release();
             }
         }
 #endif

@@ -87,6 +87,7 @@ target_sources(CompressonatorCLI-bin
 target_include_directories(CompressonatorCLI-bin
     PRIVATE
     Source
+    ${PROJECT_SOURCE_DIR}/applications/common
     ${PROJECT_SOURCE_DIR}/applications/_plugins/common
     ${PROJECT_SOURCE_DIR}/applications/_plugins/common/json
     ${PROJECT_SOURCE_DIR}/applications/_plugins/cmesh/mesh_optimizer
@@ -221,6 +222,13 @@ if(CMP_HOST_WINDOWS)
         WIN32_EXECUTABLE OFF             #Build an executable with a WinMain entry point on windows.
         VS_DEBUGGER_WORKING_DIRECTORY $<TARGET_FILE_DIR:CompressonatorCLI-bin>
     )
+    # cmp_fileio.cpp uses token/security descriptor APIs
+    target_link_libraries(CompressonatorCLI-bin advapi32)
+    # Enable runtime DLL security check for ALL DLLs (including Qt5, OpenCV, glew)
+    if(OPTION_CMP_DLL_SECURITY_CHECK)
+        target_compile_definitions(CompressonatorCLI-bin PRIVATE DLL_SECURITY_CHECK_ALL_DLLS)
+        target_link_libraries(CompressonatorCLI-bin wintrust crypt32)
+    endif()
 elseif(CMP_HOST_APPLE)
     set_target_properties(CompressonatorCLI-bin PROPERTIES
         LINK_FLAGS "-Wl,-F${CMAKE_OSX_SYSROOT}/System/Library/Frameworks,-v"

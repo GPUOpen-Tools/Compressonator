@@ -35,6 +35,7 @@
 #include "qtgroupboxpropertybrowser.h"
 
 #include "cpmaincomponents.h"
+#include "cmp_fileio.h"
 #define DROPDOWN_FILEEXT_WIDTH 60
 
 extern void GetSupportedFileFormats(QList<QByteArray>& g_supportedFormats);
@@ -1546,37 +1547,39 @@ void CSetMeshOptions::SaveCompressedInfo()
     QString Path = m_DestinationFolder->text();
     QDir    dir(Path);
     QString finalPath = dir.absolutePath();
+
+    // CMP_CreateDir() only creates a single level, so a destination whose parent folders are also
+    // missing needs the recursive variant or the write probe below would redirect unnecessarily.
+    if (!CMP_DirExists(finalPath.toStdString().c_str()))
+        CMP_CreateDirTree(finalPath.toStdString());
+
+    // Probe the folder rather than the target file: opening the file to test for write
+    // access would truncate a result that has not been regenerated yet.
+    if (!CMP_IsDirWritable(finalPath.toStdString()))
+    {
+        QString userResultsPath = CMP_GetUserResultsFolder();
+        if (!userResultsPath.isEmpty())
+        {
+            finalPath = userResultsPath;
+
+            cpMainComponents* temp = (cpMainComponents*)(m_parent);
+            if (temp)
+            {
+                if (temp->m_CompressStatusDialog)
+                {
+                    temp->m_CompressStatusDialog->onClearText();
+                    temp->m_CompressStatusDialog->showOutput();
+                }
+            }
+            PrintInfo("Warning: Destination path is not writable, the path has been changed to %s\n", finalPath.toStdString().c_str());
+        }
+        else
+            PrintInfo("Warning: Destination path %s is not writable\n", finalPath.toStdString().c_str());
+    }
+
     // Path+FileName
     finalPath.append("/");
     finalPath.append(m_DestinationData.m_compname);
-    QFile file;
-    file.setFileName(finalPath);
-    bool isWritable = file.open(QIODevice::ReadWrite);
-
-    if (!isWritable)
-    {
-        QString   appLocalPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
-        QFileInfo fileInfo2(appLocalPath);
-        finalPath = fileInfo2.dir().path();
-        // Path+FileName
-        finalPath.append("/");
-        finalPath.append(m_DestinationData.m_compname);
-        QFileInfo fileInfo(finalPath);
-
-        cpMainComponents* temp = (cpMainComponents*)(m_parent);
-        if (temp)
-        {
-            if (temp->m_CompressStatusDialog)
-            {
-                temp->m_CompressStatusDialog->onClearText();
-                temp->m_CompressStatusDialog->showOutput();
-            }
-        }
-        PrintInfo("Warning: Destination path is not writable, the path has been changed to app local path.\n");
-    }
-
-    file.close();
-    file.remove();
 
     if (m_DestinationData.m_SourceType == TREETYPE_3DMODEL_DATA)
     {

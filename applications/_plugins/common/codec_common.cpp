@@ -248,6 +248,11 @@ CMP_DWORD CalcBufferSize(CodecType nCodecType, CMP_DWORD dwWidth, CMP_DWORD dwHe
 #if (OPTION_BUILD_ASTC == 1)
     // Block size ranges from 4x4 to 12x12 and 128 bits per block
     case CT_ASTC:
+        // Guard against divide-by-zero from an unset/invalid block size
+        if (nBlockWidth <= 0)
+            nBlockWidth = 4;
+        if (nBlockHeight <= 0)
+            nBlockHeight = 4;
         dwWidth  = ((dwWidth + nBlockWidth - 1) / nBlockWidth) * 4;
         dwHeight = ((dwHeight + nBlockHeight - 1) / nBlockHeight) * 4;
         buffsize = dwWidth * dwHeight;

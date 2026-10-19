@@ -32,6 +32,7 @@
 #include "common.h"
 #include "codec_gt.h"
 #include <process.h>
+#include <system_error>
 #include "debug.h"
 
 #ifdef GT_COMPDEBUGGER
@@ -64,12 +65,14 @@ unsigned int _stdcall GTCThreadProcEncode(void* param)
 {
     GTCEncodeThreadParam* tp = (GTCEncodeThreadParam*)param;
 
-    while (tp->exit == FALSE)
+    while (!tp->exit.load(std::memory_order_acquire))
     {
-        if (tp->run == TRUE)
+        // Acquire pairs with the producer's release store of run, so tp->in and tp->out are
+        // guaranteed visible here before the block is encoded.
+        if (tp->run.load(std::memory_order_acquire))
         {
             tp->encoder->CompressBlock(tp->in, tp->out);
-            tp->run = false;
+            tp->run.store(false, std::memory_order_release);
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(0));
@@ -148,51 +151,55 @@ CCodec_GTC::~CCodec_GTC()
 {
     if (m_LibraryInitialized)
     {
-        if (m_Use_MultiThreading)
+        // The worker threads are started for every encoding thread slot, including the
+        // single threaded case, so they must always be signalled and joined here. Leaving
+        // them running keeps the thread polling m_EncodeParameterStorage and calling through
+        // m_encoder after both have been freed below.
+        // Tell all the live threads that they can exit when they have finished any current work
+        for (int i = 0; i < m_LiveThreads; i++)
         {
-            // Tell all the live threads that they can exit when they have finished any current work
-            for (int i = 0; i < m_LiveThreads; i++)
-            {
-                // If a thread is in the running state then we need to wait for it to finish
-                // any queued work from the producer before we can tell it to exit.
-                //
-                // If we don't wait then there is a race condition here where we have
-                // told the thread to run but it hasn't yet been scheduled - if we set
-                // the exit flag before it runs then its block will not be processed.
+            // If a thread is in the running state then we need to wait for it to finish
+            // any queued work from the producer before we can tell it to exit.
+            //
+            // If we don't wait then there is a race condition here where we have
+            // told the thread to run but it hasn't yet been scheduled - if we set
+            // the exit flag before it runs then its block will not be processed.
 #pragma warning(push)
 #pragma warning(disable : 4127)  //warning C4127: conditional expression is constant
-                while (1)
-                {
-                    if (m_EncodeParameterStorage[i].run != TRUE)
-                    {
-                        break;
-                    }
-                }
-#pragma warning(pop)
-                // Signal to the thread that it can exit
-                m_EncodeParameterStorage[i].exit = TRUE;
-            }
-
-            // Now wait for all threads to have exited
-            if (m_LiveThreads > 0)
+            while (1)
             {
-                for (CMP_DWORD dwThread = 0; dwThread < m_LiveThreads; dwThread++)
+                if (m_EncodeParameterStorage == NULL)
+                    break;
+                if (!m_EncodeParameterStorage[i].run.load(std::memory_order_acquire))
                 {
-                    std::thread& curThread = m_EncodingThreadHandle[dwThread];
-
-                    curThread.join();
+                    break;
                 }
+                // Yield instead of spinning: the worker may be waiting on a core this loop holds.
+                std::this_thread::yield();
             }
+#pragma warning(pop)
+            // Signal to the thread that it can exit
+            if (m_EncodeParameterStorage)
+                m_EncodeParameterStorage[i].exit.store(true, std::memory_order_release);
+        }
 
-            for (unsigned int i = 0; i < m_LiveThreads; i++)
+        // Now wait for all threads to have exited
+        if (m_EncodingThreadHandle)
+        {
+            for (int i = 0; i < m_LiveThreads; i++)
             {
                 std::thread& curThread = m_EncodingThreadHandle[i];
+
+                if (curThread.joinable())
+                    curThread.join();
 
                 curThread = std::thread();
             }
 
-        }  // MultiThreading
+            delete[] m_EncodingThreadHandle;
+        }
 
+        m_LiveThreads          = 0;
         m_EncodingThreadHandle = NULL;
 
         if (m_EncodeParameterStorage)
@@ -286,6 +293,35 @@ CodecError CCodec_GTC::InitializeGTCLibrary()
 #endif
         }
 
+        // m_LibraryInitialized stays false on every path below, so the destructor will not tear
+        // the pool down: any worker already started still polls m_EncodeParameterStorage and
+        // calls through m_encoder, and destroying an unjoined std::thread calls std::terminate().
+        auto shutdownEncoderPool = [this]() {
+            for (int t = 0; t < m_LiveThreads; t++)
+                m_EncodeParameterStorage[t].exit.store(true, std::memory_order_release);
+
+            for (int t = 0; t < m_LiveThreads; t++)
+            {
+                std::thread& curThread = m_EncodingThreadHandle[t];
+                if (curThread.joinable())
+                    curThread.join();
+                curThread = std::thread();
+            }
+            m_LiveThreads = 0;
+
+            delete[] m_EncodingThreadHandle;
+            m_EncodingThreadHandle = NULL;
+
+            delete[] m_EncodeParameterStorage;
+            m_EncodeParameterStorage = NULL;
+
+            for (CMP_INT j = 0; j < m_NumEncodingThreads; j++)
+            {
+                delete m_encoder[j];
+                m_encoder[j] = NULL;
+            }
+        };
+
         // Create the encoding threads in the suspended state
         for (i = 0; i < m_NumEncodingThreads; i++)
         {
@@ -293,10 +329,20 @@ CodecError CCodec_GTC::InitializeGTCLibrary()
             m_EncodeParameterStorage[i].encoder = m_encoder[i];
             // Inform the thread that at the moment it doesn't have any work to do
             // but that it should wait for some and not exit
-            m_EncodeParameterStorage[i].run  = FALSE;
-            m_EncodeParameterStorage[i].exit = FALSE;
+            m_EncodeParameterStorage[i].run.store(false, std::memory_order_relaxed);
+            m_EncodeParameterStorage[i].exit.store(false, std::memory_order_relaxed);
 
-            m_EncodingThreadHandle[i] = std::thread(GTCThreadProcEncode, (void*)&m_EncodeParameterStorage[i]);
+            try
+            {
+                m_EncodingThreadHandle[i] = std::thread(GTCThreadProcEncode, (void*)&m_EncodeParameterStorage[i]);
+            }
+            catch (const std::system_error&)
+            {
+                // Out of thread handles: without this the exception escapes with the workers
+                // started so far left spinning for the life of the process.
+                shutdownEncoderPool();
+                return CE_Unknown;
+            }
             m_LiveThreads++;
         }
 
@@ -304,11 +350,7 @@ CodecError CCodec_GTC::InitializeGTCLibrary()
         m_decoder = new GTCBlockDecoder();
         if (!m_decoder)
         {
-            for (CMP_INT j = 0; j < m_NumEncodingThreads; j++)
-            {
-                delete m_encoder[j];
-                m_encoder[j] = NULL;
-            }
+            shutdownEncoderPool();
             return CE_Unknown;
         }
 
@@ -335,7 +377,7 @@ CodecError CCodec_GTC::EncodeGTCBlock(CMP_BYTE* in, CMP_BYTE* out)
             if (m_EncodeParameterStorage == NULL)
                 return CE_Unknown;
 
-            if (m_EncodeParameterStorage[threadIndex].run == FALSE)
+            if (!m_EncodeParameterStorage[threadIndex].run.load(std::memory_order_acquire))
             {
                 found = TRUE;
                 break;
@@ -357,8 +399,8 @@ CodecError CCodec_GTC::EncodeGTCBlock(CMP_BYTE* in, CMP_BYTE* out)
         // Set the output pointer for the thread to the provided location
         m_EncodeParameterStorage[threadIndex].out = out;
 
-        // Tell the thread to start working
-        m_EncodeParameterStorage[threadIndex].run = TRUE;
+        // Tell the thread to start working. The release store publishes the in/out writes above.
+        m_EncodeParameterStorage[threadIndex].run.store(true, std::memory_order_release);
     }
     else
     {
@@ -391,7 +433,7 @@ CodecError CCodec_GTC::FinishGTCEncoding(void)
         {
             // If a thread is in the running state then we need to wait for it to finish
             // its work from the producer
-            while (m_EncodeParameterStorage[i].run == TRUE)
+            while (m_EncodeParameterStorage[i].run.load(std::memory_order_acquire))
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
