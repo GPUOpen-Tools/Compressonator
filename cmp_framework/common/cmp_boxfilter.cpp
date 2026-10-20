@@ -424,7 +424,7 @@ CMP_INT CMP_API CMP_GenerateMIPLevelsEx(CMP_MipSet* pMipSet, CMP_CFilterParams* 
             break;
     }
 
-    if (CFilterParam->fGammaCorrection != 1.0f)
+    if (CFilterParam->fGammaCorrection != 1.0f && CFilterParam->fGammaCorrection != 0.0f)
         CMP_SetMipSetGamma(pMipSet, CFilterParam->fGammaCorrection);
 
     return CMP_OK;

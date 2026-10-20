@@ -577,8 +577,8 @@ typedef struct
 
     // Setting that applies to a CAS Filter
     float fSharpness;  // Uses Fidelity Fx CAS sharpness, default 0 No sharpness set
-    int   destWidth;   // Scale source texture width to destWidth default 0 no scaleing
-    int   destHeight;  // Scale source texture height to destHeight default 0 no scalwing
+    int   destWidth;   // Scale source texture width to destWidth default 0 no scaling
+    int   destHeight;  // Scale source texture height to destHeight default 0 no scaling
     bool  useSRGB;     // if set true process image as SRGB else use linear color space. Default is false
 
 } CMP_CFilterParams;
@@ -592,7 +592,7 @@ typedef enum
 typedef struct
 {
     CMP_VISION_PROCESS nProcessType;  // Type of image processing to perform
-    CMP_BOOL           Auto;          // Use Auto stting to align and crop images
+    CMP_BOOL           Auto;          // Use Auto setting to align and crop images
     CMP_BOOL           AlignImages;   // Align the Test image with the source image
     CMP_BOOL           ShowImages;    // Display processed images
     CMP_BOOL           SaveMatch;     // Save auto match image

@@ -203,7 +203,7 @@ int Plugin_BoxFilter::TC_CFilter(MipSet* pMipSet, CMP_MipSet* pMipSetDst, CMP_CF
 #endif
     }
 
-    if (pCFilterParams->fGammaCorrection != 1.0f)
+    if (pCFilterParams->fGammaCorrection != 1.0f && pCFilterParams->fGammaCorrection != 0.0f)
         CMP_SetMipSetGamma(pMipSet, pCFilterParams->fGammaCorrection);
 
     return result;
