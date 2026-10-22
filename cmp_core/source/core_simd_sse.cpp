@@ -33,6 +33,9 @@
 #define ALIGN_16 __attribute__((aligned(16)))
 #endif
 
+#ifdef __clang_major__
+__attribute__((target("sse4.1")))
+#endif
 CGU_FLOAT sse_bc1ComputeBestEndpoints(CGU_FLOAT endpointsOut[2],
                                       CGU_FLOAT endpointsIn[2],
                                       CGU_FLOAT prj[16],

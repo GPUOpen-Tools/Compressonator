@@ -255,6 +255,9 @@ CMP_STATIC CGU_FLOAT cmp_maxf(CMP_IN CGU_FLOAT a, CMP_IN CGU_FLOAT b)
     return a > b ? a : b;
 }
 
+#ifdef __clang_major__ && (defined(_M_X64) || defined(_M_IX86) || defined(x86_64) || defined(i386))
+__attribute__((target("sse4.1")))
+#endif
 CMP_STATIC CGU_FLOAT cmp_floor(CMP_IN CGU_FLOAT value)
 {
 #if defined(_M_X64) || defined(_M_IX86) || defined(x86_64) || defined(i386)

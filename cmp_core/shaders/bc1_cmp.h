@@ -96,11 +96,13 @@ CMP_STATIC CGU_FLOAT (*cpu_bc1ComputeBestEndpoints)(CGU_FLOAT*, CGU_FLOAT*, CGU_
 // NOTE: The requested extension will only be enabled if it is supported by the current CPU.
 CMP_STATIC bool bc1ToggleSIMD(CGU_INT newExtension)
 {
+    CPUExtensions extensions = GetCPUExtensions();
+    
+	// Metallicafan212:	Don't evaluate on non-X86 platforms
+#if AMD_COMPRESSONATOR_AMD64 || AMD_COMPRESSONATOR_X86
     CGU_BOOL useAVX512 = true;
     CGU_BOOL useAVX2   = true;
     CGU_BOOL useSSE42  = true;
-
-    CPUExtensions extensions = GetCPUExtensions();
 
     if (newExtension < EXTENSION_COUNT)  // user requested a specific instruction set extension
     {
@@ -125,6 +127,12 @@ CMP_STATIC bool bc1ToggleSIMD(CGU_INT newExtension)
     {
         cpu_bc1ComputeBestEndpoints = _cpu_bc1ComputeBestEndpoints;
     }
+#else 
+    CGU_BOOL useAVX512 = false;
+    CGU_BOOL useAVX2   = false;
+    CGU_BOOL useSSE42  = false;
+    cpu_bc1ComputeBestEndpoints = _cpu_bc1ComputeBestEndpoints;
+#endif
 
     g_bc1FunctionPointersSet = true;
 

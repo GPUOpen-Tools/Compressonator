@@ -474,6 +474,12 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
         }
         RESTORE_FP_EXCEPTIONS;
 
+        SAFE_DELETE(pCodecIn);
+        SAFE_DELETE(pCodecOut);
+        SAFE_DELETE(pSrcBuffer);
+        SAFE_DELETE(pTempBuffer);
+        SAFE_DELETE(pDestBuffer);
+
         return GetError(err2);
     }
 }

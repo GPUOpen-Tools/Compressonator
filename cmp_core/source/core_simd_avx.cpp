@@ -32,6 +32,9 @@
 #define ALIGN_32 __attribute__((aligned(32)))
 #endif
 
+#ifdef __clang_major__
+__attribute__((target("avx")))
+#endif
 CGU_FLOAT avx_bc1ComputeBestEndpoints(CGU_FLOAT endpointsOut[2],
                                       CGU_FLOAT endpointsIn[2],
                                       CGU_FLOAT prj[16],

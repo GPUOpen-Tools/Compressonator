@@ -59,6 +59,59 @@ message("Building Compressonator version ${PROJECT_VERSION_MAJOR}.${PROJECT_VERS
 # ------------------------------
 include(cmake/helperfunctions.cmake)
 
+# ----------------------------------
+# Check the target architecture
+# ----------------------------------
+################################################################################
+# Figure out build type and target platform
+################################################################################
+
+include(CheckCCompilerFlag)
+
+# See what CPU we appear to be targeting... 
+macro(check_cpu _CDEFS _NAME _VALUE)
+    check_c_source_compiles(
+        "
+        #if ( ${_CDEFS} )
+        int main(int argc, char **argv) { int yup = 1; return 0; }
+        #else
+        #error Not targeting this CPU architecture.
+        #endif
+        "
+        ${_VALUE}
+    )
+
+    if(${_VALUE})
+        if(AMD_COMPRESSONATOR_CHOSE_CPU)
+            message(STATUS "We appear to see two different CPU architectures!")
+            message(STATUS "We saw '${AMD_COMPRESSONATOR_CPU}' and '${_NAME}'.")
+            message(FATAL_ERROR "Please fix this before continuing.")
+        endif()
+        set(AMD_COMPRESSONATOR_CHOSE_CPU TRUE)
+        set(AMD_COMPRESSONATOR_CPU ${_NAME})
+        add_compile_definitions(${_VALUE}=1)
+    endif()
+endmacro(check_cpu)
+
+check_cpu(
+    "defined(__i386__) || defined(__i686__) || defined(_M_IX86) || defined(i386)"
+    "x86" AMD_COMPRESSONATOR_X86
+)
+
+check_cpu("defined(__x86_64__) || defined(_M_X64)" "amd64" AMD_COMPRESSONATOR_AMD64)
+
+check_cpu("defined(__EMSCRIPTEN__)" "emscripten" AMD_COMPRESSONATOR_EMSCRIPTEN)
+
+check_cpu("defined(__arm__)" "arm" AMD_COMPRESSONATOR_ARM)
+
+check_cpu("defined(__arm64__) || defined(__aarch64__)" "arm64" AMD_COMPRESSONATOR_ARM64)
+
+check_cpu("defined(__powerpc64__)" "powerpc64" AMD_COMPRESSONATOR_PPC64)
+
+if (NOT AMD_COMPRESSONATOR_CHOSE_CPU)
+    message(FATAL_ERROR "We don't support this architecture yet")
+endif()
+
 
 # ------------------------------
 # Common compiler options

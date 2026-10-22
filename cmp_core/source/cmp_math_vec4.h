@@ -656,7 +656,7 @@ public:
     union
     {
         __m128 vec128;  // float Vector 128 bits in total (16 Bytes) = array of 4 floats
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(__clang_version__)
         float f32[4];
 #endif
     };
@@ -694,7 +694,7 @@ public:
     };
 
     // indexing
-#ifndef _WIN32
+#if !defined(_WIN32) || defined(__clang_version__)
     inline const float& operator[](int i) const
     {
         return f32[i];

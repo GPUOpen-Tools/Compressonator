@@ -40,12 +40,19 @@ float cpu_sqrtf(float* pIn)
 //---------------------------------------------
 // SSE: Computes square root of  a float value
 //---------------------------------------------
+union WrappedSSE
+{
+    __m128 val;
+    float  f[4];
+};
 float sse_sqrtf(float* pIn)
 {
     //printf("sse    : ");
-    __m128 val = _mm_load1_ps(pIn);
-    val        = _mm_sqrt_ss(val);
-    return val.m128_f32[0];
+
+    WrappedSSE v;
+    v.val       = _mm_load1_ps(pIn);
+    v.val       = _mm_sqrt_ss(v.val);
+    return v.f[0];
 }
 #endif
 #endif
@@ -78,11 +85,13 @@ float sse_rsqf(float* v)
 #else
 float sse_rsqf(float* v)
 {
-    __m128 val  = _mm_set_ss(*v);  // Copy float and zero the upper 3 elements
-    __m128 val1 = _mm_set_ss(1.0f);
-    val         = _mm_sqrt_ss(val);
-    val         = _mm_div_ss(val1, val);
-    return (val.m128_f32[0]);
+    WrappedSSE val;
+    WrappedSSE val1;
+    val.val  = _mm_set_ss(*v);  // Copy float and zero the upper 3 elements
+    val1.val = _mm_set_ss(1.0f);
+    val.val         = _mm_sqrt_ss(val.val);
+    val.val         = _mm_div_ss(val1.val, val.val);
+    return (val.f[0]);
 };
 #endif
 #endif
@@ -227,6 +236,9 @@ float cpu_lerp2(CMP_Vec4uc C1, CMP_Vec4uc CA, CMP_Vec4uc CB, CMP_Vec4uc C2, CMP_
 
 #ifdef CMP_USE_XMMINTRIN
 #ifndef __linux__
+#ifdef __clang_major__
+__attribute__((target("sse3")))
+#endif
 float sse_lerp2(CMP_Vec4uc C1, CMP_Vec4uc CA, CMP_Vec4uc CB, CMP_Vec4uc C2, CMP_MATH_BYTE* encode1, CMP_MATH_BYTE* encode2)
 {
     // Initial Setup
@@ -286,6 +298,9 @@ float sse_lerp2(CMP_Vec4uc C1, CMP_Vec4uc CA, CMP_Vec4uc CB, CMP_Vec4uc C2, CMP_
     return (result1[0] + result2[0]);
 }
 
+#ifdef __clang_major__
+__attribute__((target("fma")))
+#endif
 float fma_lerp2(CMP_Vec4uc C1, CMP_Vec4uc CA, CMP_Vec4uc CB, CMP_Vec4uc C2, CMP_MATH_BYTE* encode1, CMP_MATH_BYTE* encode2)
 {
     // Initial Setup

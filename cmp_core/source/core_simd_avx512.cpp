@@ -32,6 +32,9 @@
 #define ALIGN_64 __attribute__((aligned(64)))
 #endif
 
+#ifdef __clang_major__
+__attribute__((target("avx512f")))
+#endif
 CGU_FLOAT avx512_bc1ComputeBestEndpoints(CGU_FLOAT endpointsOut[2],
                                          CGU_FLOAT endpointsIn[2],
                                          CGU_FLOAT prj[16],
