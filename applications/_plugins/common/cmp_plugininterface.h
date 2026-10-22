@@ -153,7 +153,7 @@ public:
     virtual int       TC_PluginGetVersion(TC_PluginVersion* pPluginVersion)                                                              = 0;
     virtual int       TC_PluginSetSharedIO(void* Shared)                                                                                 = 0;
     virtual int       TC_Init(void* kernel_options)                                                                                      = 0;
-    virtual CMP_ERROR TC_Compress(void* kernel_options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedbackProc = NULL) = 0;
+    virtual CMP_ERROR TC_Compress(void* kernel_options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedbackProc = NULL, CMP_DWORD_PTR pUser1 = NULL, CMP_DWORD_PTR pUser2 = NULL) = 0;
     virtual void      TC_SetComputeOptions(void* options)                                                                                = 0;
     virtual char*     TC_ComputeSourceFile()                                                                                             = 0;
     virtual CMP_ERROR TC_GetPerformanceStats(void* pPerfStats)                                                                           = 0;

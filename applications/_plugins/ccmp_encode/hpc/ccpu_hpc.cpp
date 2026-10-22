@@ -107,7 +107,7 @@ CMP_ERROR Plugin_CCPU_HPC::TC_GetDeviceInfo(void* pDeviceInfo)
 }
 
 // TODO: For the future, this can be simplified if srcTexture was passed by value instead of reference
-CMP_ERROR Plugin_CCPU_HPC::TC_Compress(void* options, MipSet& srcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback)
+CMP_ERROR Plugin_CCPU_HPC::TC_Compress(void* options, MipSet& srcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2)
 {
     CMP_ERROR result = CMP_OK;
 
@@ -128,7 +128,7 @@ CMP_ERROR Plugin_CCPU_HPC::TC_Compress(void* options, MipSet& srcTexture, MipSet
 #endif
 
     if (m_pComputeBase)
-        result = m_pComputeBase->Compress((KernelOptions*)options, srcTexture, destTexture, pFeedback);
+        result = m_pComputeBase->Compress((KernelOptions*)options, srcTexture, destTexture, pFeedback, pUser1, pUser2);
 
 #ifdef ENABLE_MAKE_COMPATIBLE_API
     if (tempBuffer.isBufferNew)

@@ -59,7 +59,7 @@ public:
     int       TC_PluginGetVersion(TC_PluginVersion* pPluginVersion);
     int       TC_Init(void* kernel_options);
     int       TC_PluginSetSharedIO(void* Shared);
-    CMP_ERROR TC_Compress(void* kernel_options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback);
+    CMP_ERROR TC_Compress(void* kernel_options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2);
     void      TC_SetComputeOptions(void* options);
     char*     TC_ComputeSourceFile();
     CMP_ERROR TC_GetPerformanceStats(void* pPerfStats);

@@ -963,7 +963,9 @@ CMP_DWORD CMP_API CMP_CalculateBufferSize(const CMP_Texture* pTexture);
 CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
                                      CMP_Texture*               pDestTexture,
                                      const CMP_CompressOptions* pOptions,
-                                     CMP_Feedback_Proc          pFeedbackProc);
+                                     CMP_Feedback_Proc          pFeedbackProc,
+                                     CMP_DWORD_PTR              pUser1,
+                                     CMP_DWORD_PTR              pUser2);
 
 #ifdef __cplusplus
 };
@@ -1047,15 +1049,15 @@ CMP_ERROR CMP_API CMP_MipSetAnlaysis(CMP_MipSet* src1, CMP_MipSet* src2, CMP_INT
 typedef bool(CMP_API* CMP_MIPFeedback_Proc)(CMP_MIPPROGRESSPARAM mipProgress);
 
 // Converts the source texture to the destination texture using MipSets with MIP MAP Levels
-CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_MipSetOut, const CMP_CompressOptions* pOptions, CMP_Feedback_Proc pFeedbackProc);
+CMP_ERROR CMP_API CMP_ConvertMipTexture(CMP_MipSet* p_MipSetIn, CMP_MipSet* p_MipSetOut, const CMP_CompressOptions* pOptions, CMP_Feedback_Proc pFeedbackProc, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2);
 
 //--------------------------------------------
 // CMP_Framework Lib: Texture Encoder Interfaces
 //--------------------------------------------
 CMP_ERROR CMP_API  CMP_LoadTexture(const char* sourceFile, CMP_MipSet* pMipSet);
 CMP_ERROR CMP_API  CMP_SaveTexture(const char* destFile, CMP_MipSet* pMipSet);
-CMP_ERROR CMP_API  CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSet, KernelOptions kernelOptions, CMP_Feedback_Proc pFeedbackProc);
-CMP_ERROR CMP_API  CMP_CompressTexture(KernelOptions* options, CMP_MipSet srcMipSet, CMP_MipSet dstMipSet, CMP_Feedback_Proc pFeedback);
+CMP_ERROR CMP_API  CMP_ProcessTexture(CMP_MipSet* srcMipSet, CMP_MipSet* dstMipSet, KernelOptions kernelOptions, CMP_Feedback_Proc pFeedbackProc, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2);
+CMP_ERROR CMP_API  CMP_CompressTexture(KernelOptions* options, CMP_MipSet srcMipSet, CMP_MipSet dstMipSet, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2);
 CMP_VOID CMP_API   CMP_Format2FourCC(CMP_FORMAT format, CMP_MipSet* pMipSet);
 CMP_FORMAT CMP_API CMP_ParseFormat(char* pFormat);
 CMP_INT CMP_API    CMP_NumberOfProcessors();

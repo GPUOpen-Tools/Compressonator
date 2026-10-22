@@ -439,7 +439,7 @@ void CompressTexture(const texture_surface* input, unsigned char* output)
     g_plugin_compute->CompressTexture((void*)input, (void*)output, nullptr);
 }
 
-CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback)
+CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2)
 {
     if (m_plugin_compute == NULL)
         return (CMP_ERR_UNABLE_TO_INIT_COMPUTELIB);
@@ -636,7 +636,7 @@ CMP_ERROR CCPU_HPC::Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet&
                     if (progress_old != progress)
                     {
                         progress_old = progress;
-                        if (pFeedback(progress * 100.0f, NULL, NULL))
+                        if (pFeedback(progress * 100.0f, pUser1, pUser2))
                         {
                             break;
                         }

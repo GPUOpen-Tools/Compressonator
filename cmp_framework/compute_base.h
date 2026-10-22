@@ -47,7 +47,7 @@ public:
     ComputeBase() {};
     virtual ~ComputeBase() {};
 
-    virtual CMP_ERROR   Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback) = 0;
+    virtual CMP_ERROR   Compress(KernelOptions* Options, MipSet& SrcTexture, MipSet& destTexture, CMP_Feedback_Proc pFeedback, CMP_DWORD_PTR pUser1, CMP_DWORD_PTR pUser2) = 0;
     virtual void        SetComputeOptions(ComputeOptions* options)                                                             = 0;
     virtual float       GetProcessElapsedTimeMS()                                                                              = 0;
     virtual float       GetMTxPerSec()                                                                                         = 0;
