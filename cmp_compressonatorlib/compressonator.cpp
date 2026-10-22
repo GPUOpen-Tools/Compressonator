@@ -317,7 +317,7 @@ CMP_ERROR CMP_API CMP_ConvertTexture(CMP_Texture*               pSourceTexture,
     CodecType destType = GetCodecType(pDestTexture->format);
     assert(destType != CT_Unknown);
     if (destType == CT_Unknown)
-        return CMP_ERR_UNSUPPORTED_SOURCE_FORMAT;
+        return CMP_ERR_UNSUPPORTED_DEST_FORMAT;
 
     // Figure out the type of processing we are doing
 
