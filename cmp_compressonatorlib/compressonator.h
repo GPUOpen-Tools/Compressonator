@@ -28,7 +28,8 @@
 #define COMPRESSONATOR_H
 
 #define AMD_COMPRESS_VERSION_MAJOR 4  // The major version number of this release.
-#define AMD_COMPRESS_VERSION_MINOR 3  // The minor version number of this release.
+#define AMD_COMPRESS_VERSION_MINOR 5  // The minor version number of this release.
+#define AMD_COMPRESS_VERSION_PATCH 52 // The patch version number of this release.
 
 #include <stdint.h>
 #include <vector>
